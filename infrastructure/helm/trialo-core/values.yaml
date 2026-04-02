@@ -1,0 +1,506 @@
+## TrialOS Core Platform — Helm Values
+## Override in values-dev.yaml / values-prod.yaml as appropriate.
+
+global:
+  imageRegistry: ""
+  imagePullSecrets: []
+  storageClass: "standard"
+  orgId: "REPLACE_WITH_ORG_ID"
+
+# ---------------------------------------------------------------------------
+# Secrets (stored in Kubernetes Secret "trialo-secrets")
+# All values here are placeholder defaults — override via sealed-secrets or
+# an external secrets operator in real deployments.
+# ---------------------------------------------------------------------------
+secrets:
+  AUTH0_DOMAIN: "CHANGEME.auth0.com"
+  AUTH0_AUDIENCE: "https://api.trialo.io"
+  DATABASE_URL: "postgresql://trialo:changeme@trialo-core-postgresql:5432/trialo"
+  ANTHROPIC_API_KEY: "changeme"
+  S3_ENDPOINT: "http://trialo-core-minio:9000"
+  S3_ACCESS_KEY: "changeme"
+  S3_SECRET_KEY: "changeme"
+  KAFKA_BOOTSTRAP_SERVERS: "trialo-kafka-kafka-bootstrap:9092"
+  STRIPE_SECRET_KEY: "changeme"
+  SENDGRID_API_KEY: "changeme"
+  JWT_SECRET: "changeme-replace-with-32-char-random-string"
+
+# ---------------------------------------------------------------------------
+# Ingress
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: true
+  className: nginx
+  host: trialo.local
+  annotations:
+    konghq.com/strip-path: "true"
+    konghq.com/plugins: "rate-limiting,jwt,cors,request-id,prometheus"
+  tls: []
+  # tls:
+  #   - secretName: trialo-tls
+  #     hosts:
+  #       - trialo.local
+
+# ---------------------------------------------------------------------------
+# ServiceAccount
+# ---------------------------------------------------------------------------
+serviceAccount:
+  create: true
+  annotations: {}
+  name: ""
+
+# ---------------------------------------------------------------------------
+# Services
+# ---------------------------------------------------------------------------
+services:
+  auth-service:
+    enabled: true
+    image:
+      repository: trialo/auth-service
+      tag: "1.0.0"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    port: 8001
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    env:
+      - name: SERVICE_NAME
+        value: "auth-service"
+      - name: PORT
+        value: "8001"
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8001
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      failureThreshold: 3
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 8001
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      failureThreshold: 3
+
+  audit-service:
+    enabled: true
+    image:
+      repository: trialo/audit-service
+      tag: "1.0.0"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    port: 8002
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    env:
+      - name: SERVICE_NAME
+        value: "audit-service"
+      - name: PORT
+        value: "8002"
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8002
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      failureThreshold: 3
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 8002
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      failureThreshold: 3
+
+  ingestion-service:
+    enabled: true
+    image:
+      repository: trialo/ingestion-service
+      tag: "1.0.0"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    port: 8003
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "2000m"
+        memory: "2Gi"
+    env:
+      - name: SERVICE_NAME
+        value: "ingestion-service"
+      - name: PORT
+        value: "8003"
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8003
+      initialDelaySeconds: 20
+      periodSeconds: 20
+      failureThreshold: 3
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 8003
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      failureThreshold: 3
+
+  agent-runtime:
+    enabled: true
+    image:
+      repository: trialo/agent-runtime
+      tag: "1.0.0"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    port: 8004
+    resources:
+      requests:
+        cpu: "500m"
+        memory: "1Gi"
+      limits:
+        cpu: "4000m"
+        memory: "4Gi"
+    env:
+      - name: SERVICE_NAME
+        value: "agent-runtime"
+      - name: PORT
+        value: "8004"
+      - name: OPA_URL
+        value: "http://trialo-opa:8181"
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8004
+      initialDelaySeconds: 20
+      periodSeconds: 30
+      failureThreshold: 3
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 8004
+      initialDelaySeconds: 10
+      periodSeconds: 15
+      failureThreshold: 3
+
+  marketplace:
+    enabled: true
+    image:
+      repository: trialo/marketplace
+      tag: "1.0.0"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    port: 8005
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    env:
+      - name: SERVICE_NAME
+        value: "marketplace"
+      - name: PORT
+        value: "8005"
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8005
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      failureThreshold: 3
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 8005
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      failureThreshold: 3
+
+  notification-service:
+    enabled: true
+    image:
+      repository: trialo/notification-service
+      tag: "1.0.0"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    port: 8006
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    env:
+      - name: SERVICE_NAME
+        value: "notification-service"
+      - name: PORT
+        value: "8006"
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8006
+      initialDelaySeconds: 15
+      periodSeconds: 20
+      failureThreshold: 3
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 8006
+      initialDelaySeconds: 5
+      periodSeconds: 10
+      failureThreshold: 3
+
+  graphql-api:
+    enabled: true
+    image:
+      repository: trialo/graphql-api
+      tag: "1.0.0"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    port: 4000
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "256Mi"
+      limits:
+        cpu: "1000m"
+        memory: "1Gi"
+    env:
+      - name: SERVICE_NAME
+        value: "graphql-api"
+      - name: PORT
+        value: "4000"
+      - name: NODE_ENV
+        value: "production"
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 4000
+      initialDelaySeconds: 20
+      periodSeconds: 20
+      failureThreshold: 3
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 4000
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      failureThreshold: 3
+
+  frontend:
+    enabled: true
+    image:
+      repository: trialo/frontend
+      tag: "1.0.0"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    port: 3000
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    env:
+      - name: SERVICE_NAME
+        value: "frontend"
+      - name: PORT
+        value: "3000"
+      - name: NODE_ENV
+        value: "production"
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 3000
+      initialDelaySeconds: 20
+      periodSeconds: 20
+      failureThreshold: 3
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 3000
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      failureThreshold: 3
+
+  data-platform:
+    enabled: true
+    image:
+      repository: trialo/data-platform
+      tag: "1.0.0"
+      pullPolicy: IfNotPresent
+    replicaCount: 1
+    port: 8007
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "2000m"
+        memory: "2Gi"
+    env:
+      - name: SERVICE_NAME
+        value: "data-platform"
+      - name: PORT
+        value: "8007"
+    livenessProbe:
+      httpGet:
+        path: /health
+        port: 8007
+      initialDelaySeconds: 20
+      periodSeconds: 20
+      failureThreshold: 3
+    readinessProbe:
+      httpGet:
+        path: /health
+        port: 8007
+      initialDelaySeconds: 10
+      periodSeconds: 10
+      failureThreshold: 3
+
+# ---------------------------------------------------------------------------
+# OPA (Open Policy Agent)
+# ---------------------------------------------------------------------------
+opa:
+  enabled: true
+  image:
+    repository: openpolicyagent/opa
+    tag: "0.65.0-rootless"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  port: 8181
+  resources:
+    requests:
+      cpu: "50m"
+      memory: "64Mi"
+    limits:
+      cpu: "200m"
+      memory: "256Mi"
+
+# ---------------------------------------------------------------------------
+# Kong API Gateway
+# ---------------------------------------------------------------------------
+kong:
+  enabled: true
+  image:
+    repository: kong
+    tag: "3.6"
+    pullPolicy: IfNotPresent
+  replicaCount: 1
+  adminPort: 8001
+  proxyPort: 8000
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "256Mi"
+    limits:
+      cpu: "1000m"
+      memory: "1Gi"
+
+# ---------------------------------------------------------------------------
+# PostgreSQL (Bitnami sub-chart)
+# ---------------------------------------------------------------------------
+postgresql:
+  enabled: true
+  auth:
+    database: trialo
+    existingSecret: trialo-db-secret
+    secretKeys:
+      adminPasswordKey: postgres-password
+      userPasswordKey: password
+  primary:
+    persistence:
+      enabled: true
+      size: 20Gi
+      storageClass: ""
+    resources:
+      requests:
+        cpu: "250m"
+        memory: "512Mi"
+      limits:
+        cpu: "1000m"
+        memory: "2Gi"
+    initdb:
+      scripts:
+        init-extensions.sql: |
+          CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+          CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+          CREATE EXTENSION IF NOT EXISTS "vector";
+
+# ---------------------------------------------------------------------------
+# Redis (Bitnami sub-chart)
+# ---------------------------------------------------------------------------
+redis:
+  enabled: true
+  architecture: standalone
+  auth:
+    enabled: false
+  master:
+    persistence:
+      enabled: true
+      size: 5Gi
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+# ---------------------------------------------------------------------------
+# MinIO (Bitnami sub-chart)
+# ---------------------------------------------------------------------------
+minio:
+  enabled: true
+  defaultBuckets: "trialo-bronze,trialo-silver,trialo-gold,trialo-artifacts"
+  auth:
+    rootUser: admin
+    rootPassword: changeme-replace-in-prod
+  persistence:
+    enabled: true
+    size: 50Gi
+  resources:
+    requests:
+      cpu: "250m"
+      memory: "512Mi"
+    limits:
+      cpu: "1000m"
+      memory: "2Gi"
+
+# ---------------------------------------------------------------------------
+# HPA settings
+# ---------------------------------------------------------------------------
+hpa:
+  agentRuntime:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+  ingestionService:
+    enabled: true
+    minReplicas: 1
+    maxReplicas: 5
+    targetCPUUtilizationPercentage: 70
+
+# ---------------------------------------------------------------------------
+# PodDisruptionBudgets (enabled in prod overlay)
+# ---------------------------------------------------------------------------
+podDisruptionBudget:
+  enabled: false
+  minAvailable: 1

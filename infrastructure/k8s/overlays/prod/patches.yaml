@@ -1,0 +1,145 @@
+---
+# agent-runtime: scale to 3 replicas, production resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-runtime
+  namespace: trialo
+spec:
+  replicas: 3
+  template:
+    spec:
+      containers:
+        - name: agent-runtime
+          resources:
+            requests:
+              cpu: "500m"
+              memory: "1Gi"
+            limits:
+              cpu: "4000m"
+              memory: "4Gi"
+
+---
+# ingestion-service: scale to 2 replicas, production resources
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestion-service
+  namespace: trialo
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: ingestion-service
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "512Mi"
+            limits:
+              cpu: "2000m"
+              memory: "2Gi"
+
+---
+# frontend: scale to 2 replicas
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: trialo
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: frontend
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+---
+# graphql-api: scale to 2 replicas for production load
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graphql-api
+  namespace: trialo
+spec:
+  replicas: 2
+  template:
+    spec:
+      containers:
+        - name: graphql-api
+          resources:
+            requests:
+              cpu: "250m"
+              memory: "256Mi"
+            limits:
+              cpu: "1000m"
+              memory: "1Gi"
+
+---
+# auth-service: 2 replicas for HA
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: trialo
+spec:
+  replicas: 2
+
+---
+# PodDisruptionBudget for agent-runtime
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: agent-runtime-pdb
+  namespace: trialo
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: agent-runtime
+
+---
+# PodDisruptionBudget for ingestion-service
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: ingestion-service-pdb
+  namespace: trialo
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: ingestion-service
+
+---
+# PodDisruptionBudget for frontend
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: frontend-pdb
+  namespace: trialo
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: frontend
+
+---
+# PodDisruptionBudget for graphql-api
+apiVersion: policy/v1
+kind: PodDisruptionBudget
+metadata:
+  name: graphql-api-pdb
+  namespace: trialo
+spec:
+  minAvailable: 1
+  selector:
+    matchLabels:
+      app.kubernetes.io/name: graphql-api

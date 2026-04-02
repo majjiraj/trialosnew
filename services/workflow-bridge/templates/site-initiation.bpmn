@@ -1,0 +1,91 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:zeebe="http://camunda.org/schema/zeebe/1.0"
+                  id="Definitions_siv"
+                  targetNamespace="http://bpmn.io/schema/bpmn">
+
+  <bpmn:process id="site-initiation" name="Site Initiation Visit" isExecutable="true">
+
+    <bpmn:startEvent id="siv_start" name="SIV Scheduled">
+      <bpmn:outgoing>siv_flow1</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:userTask id="siv_prereqs" name="Verify Pre-SIV Prerequisites">
+      <bpmn:extensionElements>
+        <zeebe:formDefinition formKey="form-site-prereqs"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="assignee_role" value="cro_data_manager"/>
+          <zeebe:header key="sla_hours" value="72"/>
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>siv_flow1</bpmn:incoming>
+      <bpmn:outgoing>siv_flow2</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:userTask id="siv_training" name="Confirm Staff Training">
+      <bpmn:extensionElements>
+        <zeebe:formDefinition formKey="form-site-training"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="assignee_role" value="site_pi|site_crc"/>
+          <zeebe:header key="sla_hours" value="24"/>
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>siv_flow2</bpmn:incoming>
+      <bpmn:outgoing>siv_flow3</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="siv_reg_check" name="AI Regulatory Package Review">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="trialo:agent-run" retries="2"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="agent_slug" value="regulatory-package-reviewer"/>
+          <zeebe:header key="output_mapping" value="{&quot;reg_package_complete&quot;:&quot;is_complete&quot;}"/>
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>siv_flow3</bpmn:incoming>
+      <bpmn:outgoing>siv_flow4</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:userTask id="siv_pi_sign" name="PI Regulatory Package Sign-off">
+      <bpmn:extensionElements>
+        <zeebe:formDefinition formKey="form-pi-signoff"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="assignee_role" value="site_pi"/>
+          <zeebe:header key="sla_hours" value="48"/>
+          <zeebe:header key="requires_esig" value="true"/>
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>siv_flow4</bpmn:incoming>
+      <bpmn:outgoing>siv_flow5</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="siv_notify_sponsor" name="Notify Sponsor — Site Initiated">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="trialo:send-notification" retries="3"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="notification_type" value="site_initiated"/>
+          <zeebe:header key="severity" value="info"/>
+        </zeebe:taskHeaders>
+        <zeebe:ioMapping>
+          <zeebe:input source="=&quot;Site Initiation Complete&quot;" target="title"/>
+          <zeebe:input source="=&quot;Site &quot;+site_id+&quot; has been successfully initiated.&quot;" target="body"/>
+          <zeebe:input source="=org_id" target="org_id"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>siv_flow5</bpmn:incoming>
+      <bpmn:outgoing>siv_flow_end</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="siv_end" name="Site Initiated">
+      <bpmn:incoming>siv_flow_end</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="siv_flow1" sourceRef="siv_start" targetRef="siv_prereqs"/>
+    <bpmn:sequenceFlow id="siv_flow2" sourceRef="siv_prereqs" targetRef="siv_training"/>
+    <bpmn:sequenceFlow id="siv_flow3" sourceRef="siv_training" targetRef="siv_reg_check"/>
+    <bpmn:sequenceFlow id="siv_flow4" sourceRef="siv_reg_check" targetRef="siv_pi_sign"/>
+    <bpmn:sequenceFlow id="siv_flow5" sourceRef="siv_pi_sign" targetRef="siv_notify_sponsor"/>
+    <bpmn:sequenceFlow id="siv_flow_end" sourceRef="siv_notify_sponsor" targetRef="siv_end"/>
+
+  </bpmn:process>
+</bpmn:definitions>

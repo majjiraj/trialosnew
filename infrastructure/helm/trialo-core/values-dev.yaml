@@ -1,0 +1,280 @@
+## TrialOS Core — Development Environment Overrides
+## Merge on top of values.yaml: helm install trialo-core . -f values.yaml -f values-dev.yaml
+
+global:
+  imageRegistry: ""
+  storageClass: "standard"
+
+# ---------------------------------------------------------------------------
+# Dev secrets — use docker-compose defaults
+# In real dev environments these should come from a .env file or Vault
+# ---------------------------------------------------------------------------
+secrets:
+  AUTH0_DOMAIN: "dev-trialo.us.auth0.com"
+  AUTH0_AUDIENCE: "https://dev-api.trialo.io"
+  DATABASE_URL: "postgresql://trialo:changeme@localhost:5432/trialo"
+  ANTHROPIC_API_KEY: "changeme-dev"
+  S3_ENDPOINT: "http://localhost:9000"
+  S3_ACCESS_KEY: "admin"
+  S3_SECRET_KEY: "changeme"
+  KAFKA_BOOTSTRAP_SERVERS: "localhost:9092"
+  STRIPE_SECRET_KEY: "sk_test_changeme"
+  SENDGRID_API_KEY: "changeme-dev"
+  JWT_SECRET: "dev-jwt-secret-not-for-production-use"
+
+# ---------------------------------------------------------------------------
+# Ingress — use local dev domain
+# ---------------------------------------------------------------------------
+ingress:
+  enabled: true
+  host: trialo.local
+  tls: []
+
+# ---------------------------------------------------------------------------
+# Dev service overrides — lower resources, single replicas, debug logging
+# ---------------------------------------------------------------------------
+services:
+  auth-service:
+    replicaCount: 1
+    image:
+      pullPolicy: Always
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+    env:
+      - name: SERVICE_NAME
+        value: "auth-service"
+      - name: PORT
+        value: "8001"
+      - name: LOG_LEVEL
+        value: "debug"
+
+  audit-service:
+    replicaCount: 1
+    image:
+      pullPolicy: Always
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+    env:
+      - name: SERVICE_NAME
+        value: "audit-service"
+      - name: PORT
+        value: "8002"
+      - name: LOG_LEVEL
+        value: "debug"
+
+  ingestion-service:
+    replicaCount: 1
+    image:
+      pullPolicy: Always
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    env:
+      - name: SERVICE_NAME
+        value: "ingestion-service"
+      - name: PORT
+        value: "8003"
+      - name: LOG_LEVEL
+        value: "debug"
+
+  agent-runtime:
+    replicaCount: 1
+    image:
+      pullPolicy: Always
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "1Gi"
+    env:
+      - name: SERVICE_NAME
+        value: "agent-runtime"
+      - name: PORT
+        value: "8004"
+      - name: LOG_LEVEL
+        value: "debug"
+      - name: OPA_URL
+        value: "http://trialo-opa:8181"
+
+  marketplace:
+    replicaCount: 1
+    image:
+      pullPolicy: Always
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+    env:
+      - name: SERVICE_NAME
+        value: "marketplace"
+      - name: PORT
+        value: "8005"
+      - name: LOG_LEVEL
+        value: "debug"
+
+  notification-service:
+    replicaCount: 1
+    image:
+      pullPolicy: Always
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "200m"
+        memory: "256Mi"
+    env:
+      - name: SERVICE_NAME
+        value: "notification-service"
+      - name: PORT
+        value: "8006"
+      - name: LOG_LEVEL
+        value: "debug"
+
+  graphql-api:
+    replicaCount: 1
+    image:
+      pullPolicy: Always
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "128Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    env:
+      - name: SERVICE_NAME
+        value: "graphql-api"
+      - name: PORT
+        value: "4000"
+      - name: NODE_ENV
+        value: "development"
+      - name: DEBUG
+        value: "apollo:*"
+
+  frontend:
+    replicaCount: 1
+    image:
+      pullPolicy: Always
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "128Mi"
+      limits:
+        cpu: "250m"
+        memory: "256Mi"
+    env:
+      - name: SERVICE_NAME
+        value: "frontend"
+      - name: PORT
+        value: "3000"
+      - name: NODE_ENV
+        value: "development"
+
+  data-platform:
+    replicaCount: 1
+    image:
+      pullPolicy: Always
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+    env:
+      - name: SERVICE_NAME
+        value: "data-platform"
+      - name: PORT
+        value: "8007"
+      - name: LOG_LEVEL
+        value: "debug"
+
+# ---------------------------------------------------------------------------
+# Dev infrastructure — lighter resource profiles
+# ---------------------------------------------------------------------------
+postgresql:
+  enabled: true
+  primary:
+    persistence:
+      size: 5Gi
+    resources:
+      requests:
+        cpu: "100m"
+        memory: "256Mi"
+      limits:
+        cpu: "500m"
+        memory: "512Mi"
+
+redis:
+  enabled: true
+  master:
+    persistence:
+      size: 1Gi
+    resources:
+      requests:
+        cpu: "50m"
+        memory: "64Mi"
+      limits:
+        cpu: "200m"
+        memory: "128Mi"
+
+minio:
+  enabled: true
+  persistence:
+    size: 10Gi
+  resources:
+    requests:
+      cpu: "100m"
+      memory: "256Mi"
+    limits:
+      cpu: "500m"
+      memory: "512Mi"
+
+# ---------------------------------------------------------------------------
+# HPA disabled in dev
+# ---------------------------------------------------------------------------
+hpa:
+  agentRuntime:
+    enabled: false
+  ingestionService:
+    enabled: false
+
+# ---------------------------------------------------------------------------
+# PDBs disabled in dev
+# ---------------------------------------------------------------------------
+podDisruptionBudget:
+  enabled: false
+
+# ---------------------------------------------------------------------------
+# OPA in dev — same image, lighter resources
+# ---------------------------------------------------------------------------
+opa:
+  enabled: true
+  replicaCount: 1
+  resources:
+    requests:
+      cpu: "25m"
+      memory: "32Mi"
+    limits:
+      cpu: "100m"
+      memory: "128Mi"

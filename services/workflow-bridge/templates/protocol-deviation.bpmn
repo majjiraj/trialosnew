@@ -1,0 +1,101 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:zeebe="http://camunda.org/schema/zeebe/1.0"
+                  id="Definitions_pd"
+                  targetNamespace="http://bpmn.io/schema/bpmn">
+
+  <bpmn:process id="protocol-deviation" name="Protocol Deviation Handling" isExecutable="true">
+
+    <bpmn:startEvent id="pd_start" name="Deviation Identified">
+      <bpmn:outgoing>pd_flow1</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <bpmn:userTask id="pd_report" name="Complete Deviation Report">
+      <bpmn:extensionElements>
+        <zeebe:formDefinition formKey="form-protocol-deviation"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="assignee_role" value="site_crc|site_pi"/>
+          <zeebe:header key="sla_hours" value="48"/>
+        </zeebe:taskHeaders>
+        <zeebe:ioMapping>
+          <zeebe:output source="=deviation_type" target="deviation_type"/>
+          <zeebe:output source="=impact" target="impact"/>
+          <zeebe:output source="=root_cause" target="root_cause"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>pd_flow1</bpmn:incoming>
+      <bpmn:outgoing>pd_flow2</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:serviceTask id="pd_classify" name="AI Deviation Classification">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="trialo:agent-run" retries="2"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="agent_slug" value="protocol-deviation-classifier"/>
+          <zeebe:header key="output_mapping" value="{&quot;pd_severity&quot;:&quot;severity_classification&quot;,&quot;requires_capa&quot;:&quot;requires_capa&quot;}"/>
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>pd_flow2</bpmn:incoming>
+      <bpmn:outgoing>pd_flow3</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:exclusiveGateway id="pd_gateway" name="Requires CAPA?" default="pd_flow_no_capa">
+      <bpmn:incoming>pd_flow3</bpmn:incoming>
+      <bpmn:outgoing>pd_flow_capa</bpmn:outgoing>
+      <bpmn:outgoing>pd_flow_no_capa</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <bpmn:userTask id="pd_capa" name="Define CAPA Plan">
+      <bpmn:extensionElements>
+        <zeebe:taskHeaders>
+          <zeebe:header key="assignee_role" value="cro_data_manager|site_pi"/>
+          <zeebe:header key="sla_hours" value="72"/>
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>pd_flow_capa</bpmn:incoming>
+      <bpmn:outgoing>pd_flow_capa_review</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:userTask id="pd_sponsor_review" name="Sponsor Review">
+      <bpmn:extensionElements>
+        <zeebe:taskHeaders>
+          <zeebe:header key="assignee_role" value="sponsor_admin"/>
+          <zeebe:header key="sla_hours" value="72"/>
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>pd_flow_capa_review</bpmn:incoming>
+      <bpmn:outgoing>pd_flow_end_capa</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:userTask id="pd_document" name="Document and Close Deviation">
+      <bpmn:extensionElements>
+        <zeebe:taskHeaders>
+          <zeebe:header key="assignee_role" value="cro_data_manager"/>
+          <zeebe:header key="sla_hours" value="24"/>
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>pd_flow_no_capa</bpmn:incoming>
+      <bpmn:outgoing>pd_flow_end_simple</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <bpmn:endEvent id="pd_end_capa" name="Deviation Resolved with CAPA">
+      <bpmn:incoming>pd_flow_end_capa</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:endEvent id="pd_end_simple" name="Deviation Documented">
+      <bpmn:incoming>pd_flow_end_simple</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="pd_flow1" sourceRef="pd_start" targetRef="pd_report"/>
+    <bpmn:sequenceFlow id="pd_flow2" sourceRef="pd_report" targetRef="pd_classify"/>
+    <bpmn:sequenceFlow id="pd_flow3" sourceRef="pd_classify" targetRef="pd_gateway"/>
+    <bpmn:sequenceFlow id="pd_flow_capa" name="Requires CAPA" sourceRef="pd_gateway" targetRef="pd_capa">
+      <bpmn:conditionExpression>=requires_capa = true or impact = "significant"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="pd_flow_no_capa" sourceRef="pd_gateway" targetRef="pd_document"/>
+    <bpmn:sequenceFlow id="pd_flow_capa_review" sourceRef="pd_capa" targetRef="pd_sponsor_review"/>
+    <bpmn:sequenceFlow id="pd_flow_end_capa" sourceRef="pd_sponsor_review" targetRef="pd_end_capa"/>
+    <bpmn:sequenceFlow id="pd_flow_end_simple" sourceRef="pd_document" targetRef="pd_end_simple"/>
+
+  </bpmn:process>
+</bpmn:definitions>

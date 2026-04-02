@@ -1,0 +1,52 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: trialo-dev
+
+namespace: trialo
+
+bases:
+  - ../../base
+
+# Dev-specific patches
+patches:
+  - path: patches.yaml
+
+# Dev-specific image tags (use Always pull for development)
+images:
+  - name: trialo/auth-service
+    newTag: latest
+  - name: trialo/audit-service
+    newTag: latest
+  - name: trialo/ingestion-service
+    newTag: latest
+  - name: trialo/agent-runtime
+    newTag: latest
+  - name: trialo/marketplace
+    newTag: latest
+  - name: trialo/notification-service
+    newTag: latest
+  - name: trialo/graphql-api
+    newTag: latest
+  - name: trialo/frontend
+    newTag: latest
+  - name: trialo/data-platform
+    newTag: latest
+
+# Override Helm values for dev
+helmCharts:
+  - name: trialo-core
+    releaseName: trialo-core
+    namespace: trialo
+    version: 1.0.0
+    repo: https://github.com/your-org/trialo/infrastructure/helm/trialo-core
+    valuesFile: ../../../../helm/trialo-core/values.yaml
+    additionalValuesFiles:
+      - ../../../../helm/trialo-core/values-dev.yaml
+
+commonLabels:
+  environment: dev
+
+commonAnnotations:
+  trialo.io/environment: "dev"

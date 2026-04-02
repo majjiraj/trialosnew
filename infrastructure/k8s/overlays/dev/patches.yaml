@@ -1,0 +1,234 @@
+---
+# Scale all services down to 1 replica in dev
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: auth-service
+  namespace: trialo
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: auth-service
+          imagePullPolicy: Always
+          env:
+            - name: LOG_LEVEL
+              value: debug
+            - name: ENVIRONMENT
+              value: development
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: audit-service
+  namespace: trialo
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: audit-service
+          imagePullPolicy: Always
+          env:
+            - name: LOG_LEVEL
+              value: debug
+            - name: ENVIRONMENT
+              value: development
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: ingestion-service
+  namespace: trialo
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: ingestion-service
+          imagePullPolicy: Always
+          env:
+            - name: LOG_LEVEL
+              value: debug
+            - name: ENVIRONMENT
+              value: development
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: agent-runtime
+  namespace: trialo
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: agent-runtime
+          imagePullPolicy: Always
+          env:
+            - name: LOG_LEVEL
+              value: debug
+            - name: ENVIRONMENT
+              value: development
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "1Gi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: marketplace
+  namespace: trialo
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: marketplace
+          imagePullPolicy: Always
+          env:
+            - name: LOG_LEVEL
+              value: debug
+            - name: ENVIRONMENT
+              value: development
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: notification-service
+  namespace: trialo
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: notification-service
+          imagePullPolicy: Always
+          env:
+            - name: LOG_LEVEL
+              value: debug
+            - name: ENVIRONMENT
+              value: development
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "64Mi"
+            limits:
+              cpu: "200m"
+              memory: "256Mi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: graphql-api
+  namespace: trialo
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: graphql-api
+          imagePullPolicy: Always
+          env:
+            - name: LOG_LEVEL
+              value: debug
+            - name: NODE_ENV
+              value: development
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "128Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: frontend
+  namespace: trialo
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: frontend
+          imagePullPolicy: Always
+          env:
+            - name: NODE_ENV
+              value: development
+            - name: NEXT_PUBLIC_API_URL
+              value: "http://localhost:4000"
+          resources:
+            requests:
+              cpu: "50m"
+              memory: "128Mi"
+            limits:
+              cpu: "250m"
+              memory: "256Mi"
+
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: data-platform
+  namespace: trialo
+spec:
+  replicas: 1
+  template:
+    spec:
+      containers:
+        - name: data-platform
+          imagePullPolicy: Always
+          env:
+            - name: LOG_LEVEL
+              value: debug
+            - name: ENVIRONMENT
+              value: development
+          resources:
+            requests:
+              cpu: "100m"
+              memory: "256Mi"
+            limits:
+              cpu: "500m"
+              memory: "512Mi"

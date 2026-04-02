@@ -1,0 +1,216 @@
+##############################################################################
+# Default deny-all ingress for the namespace — every pod in the namespace
+# must be explicitly allowed by one of the NetworkPolicies below.
+##############################################################################
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: default-deny-all-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "trialo-core.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+
+##############################################################################
+# Allow intra-namespace ingress: any pod in the namespace can talk to any
+# other pod in the same namespace.
+##############################################################################
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-intra-namespace
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "trialo-core.labels" . | nindent 4 }}
+spec:
+  podSelector: {}
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector: {}
+
+##############################################################################
+# Allow Kong ingress controller to reach all application pods.
+##############################################################################
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-kong-ingress
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "trialo-core.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/part-of: trialo
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kong
+        - podSelector:
+            matchLabels:
+              app: kong
+
+##############################################################################
+# PostgreSQL: allow all trialo service pods to reach PostgreSQL on 5432.
+##############################################################################
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-services-to-postgresql
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "trialo-core.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: postgresql
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: trialo
+      ports:
+        - protocol: TCP
+          port: 5432
+
+##############################################################################
+# Kafka: allow all trialo service pods to reach Kafka on 9092 and 9093.
+##############################################################################
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-services-to-kafka
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "trialo-core.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      strimzi.io/name: trialo-kafka-kafka
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: trialo
+      ports:
+        - protocol: TCP
+          port: 9092
+        - protocol: TCP
+          port: 9093
+
+##############################################################################
+# Redis: allow all trialo service pods to reach Redis on 6379.
+##############################################################################
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-services-to-redis
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "trialo-core.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: redis
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: trialo
+      ports:
+        - protocol: TCP
+          port: 6379
+
+##############################################################################
+# OPA: allow all trialo service pods to query OPA on 8181.
+##############################################################################
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: allow-services-to-opa
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "trialo-core.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: trialo-opa
+  policyTypes:
+    - Ingress
+  ingress:
+    - from:
+        - podSelector:
+            matchLabels:
+              app.kubernetes.io/part-of: trialo
+      ports:
+        - protocol: TCP
+          port: 8181
+
+##############################################################################
+# Agent-runtime egress: restrict outbound traffic.
+# Allow:
+#   - Intra-namespace (PostgreSQL, Redis, Kafka, OPA, other services)
+#   - DNS (kube-dns port 53)
+#   - HTTPS to public Anthropic API (enforced via OPA policy evaluation first)
+# Deny:
+#   - All other external egress
+##############################################################################
+---
+apiVersion: networking.k8s.io/v1
+kind: NetworkPolicy
+metadata:
+  name: agent-runtime-egress-restrict
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "trialo-core.labels" . | nindent 4 }}
+spec:
+  podSelector:
+    matchLabels:
+      app.kubernetes.io/name: agent-runtime
+  policyTypes:
+    - Egress
+  egress:
+    # Allow intra-namespace traffic (all backing services)
+    - to:
+        - podSelector: {}
+
+    # Allow DNS resolution
+    - to:
+        - namespaceSelector:
+            matchLabels:
+              kubernetes.io/metadata.name: kube-system
+          podSelector:
+            matchLabels:
+              k8s-app: kube-dns
+      ports:
+        - protocol: UDP
+          port: 53
+        - protocol: TCP
+          port: 53
+
+    # Allow HTTPS egress to external Tool Registry / Anthropic API
+    # In production, restrict CIDRs further or use an egress proxy.
+    - ports:
+        - protocol: TCP
+          port: 443

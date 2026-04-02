@@ -1,0 +1,55 @@
+# ── Environment & secrets ─────────────────────────────────────────────────────
+.env
+.env.*
+!.env.example
+*.pem
+*.key
+
+# ── Python ────────────────────────────────────────────────────────────────────
+*.pyc
+*.pyo
+*.pyd
+__pycache__/
+.venv/
+venv/
+*.egg-info/
+dist/
+build/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# ── Node / Next.js ────────────────────────────────────────────────────────────
+node_modules/
+.next/
+.turbo/
+.cache/
+out/
+*.tsbuildinfo
+
+# ── Docker volumes / data ─────────────────────────────────────────────────────
+volumes/
+pgdata/
+neo4j_data/
+kafka_data/
+
+# ── Generated / output files ──────────────────────────────────────────────────
+generated/
+*.xpt
+*.xls
+*.xlsx
+*.zip
+*.pdf
+*.csv
+
+# ── IDE ───────────────────────────────────────────────────────────────────────
+.idea/
+.vscode/
+*.swp
+*.swo
+.DS_Store
+
+# ── Logs ─────────────────────────────────────────────────────────────────────
+*.log
+logs/
+

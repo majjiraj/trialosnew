@@ -1,0 +1,106 @@
+{{- if .Values.ingress.enabled -}}
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: {{ include "trialo-core.fullname" . }}
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "trialo-core.labels" . | nindent 4 }}
+  annotations:
+    kubernetes.io/ingress.class: {{ .Values.ingress.className | quote }}
+    konghq.com/strip-path: "true"
+    konghq.com/plugins: "rate-limiting,jwt,cors,request-id,prometheus,response-transformer"
+    {{- with .Values.ingress.annotations }}
+    {{- toYaml . | nindent 4 }}
+    {{- end }}
+spec:
+  ingressClassName: {{ .Values.ingress.className }}
+  {{- if .Values.ingress.tls }}
+  tls:
+    {{- toYaml .Values.ingress.tls | nindent 4 }}
+  {{- end }}
+  rules:
+    - host: {{ .Values.ingress.host | quote }}
+      http:
+        paths:
+          # GraphQL API
+          - path: /api/graphql
+            pathType: Prefix
+            backend:
+              service:
+                name: graphql-api
+                port:
+                  number: 4000
+
+          # Auth Service
+          - path: /api/auth
+            pathType: Prefix
+            backend:
+              service:
+                name: auth-service
+                port:
+                  number: 8001
+
+          # Audit Service
+          - path: /api/audit
+            pathType: Prefix
+            backend:
+              service:
+                name: audit-service
+                port:
+                  number: 8002
+
+          # Ingestion Service
+          - path: /api/ingest
+            pathType: Prefix
+            backend:
+              service:
+                name: ingestion-service
+                port:
+                  number: 8003
+
+          # Agent Runtime
+          - path: /api/agents
+            pathType: Prefix
+            backend:
+              service:
+                name: agent-runtime
+                port:
+                  number: 8004
+
+          # Marketplace
+          - path: /api/marketplace
+            pathType: Prefix
+            backend:
+              service:
+                name: marketplace
+                port:
+                  number: 8005
+
+          # Notification Service
+          - path: /api/notify
+            pathType: Prefix
+            backend:
+              service:
+                name: notification-service
+                port:
+                  number: 8006
+
+          # Data Platform
+          - path: /api/data
+            pathType: Prefix
+            backend:
+              service:
+                name: data-platform
+                port:
+                  number: 8007
+
+          # Frontend (catch-all, must be last)
+          - path: /
+            pathType: Prefix
+            backend:
+              service:
+                name: frontend
+                port:
+                  number: 3000
+{{- end }}

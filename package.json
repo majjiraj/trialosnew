@@ -1,0 +1,21 @@
+{
+  "name": "trialo",
+  "version": "1.0.0",
+  "private": true,
+  "description": "TrialOS — Clinical Trials AI Platform",
+  "workspaces": ["frontend", "packages/*"],
+  "scripts": {
+    "dev": "docker-compose -f docker-compose.dev.yml up",
+    "build": "turbo build",
+    "test": "turbo test",
+    "lint": "turbo lint",
+    "db:migrate": "cd services/auth && alembic upgrade head && cd ../audit && alembic upgrade head",
+    "helm:lint": "helm lint infrastructure/helm/charts/*"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0"
+  },
+  "engines": {
+    "node": ">=20.0.0"
+  }
+}

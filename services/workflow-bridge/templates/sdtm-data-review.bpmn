@@ -1,0 +1,58 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:zeebe="http://camunda.org/schema/zeebe/1.0"
+                  id="Definitions_sdtm-data-review"
+                  targetNamespace="http://bpmn.io/schema/bpmn">
+
+  <bpmn:process id="sdtm-data-review" name="SDTM Data Review" isExecutable="true">
+
+    <bpmn:startEvent id="sdtm_start" name="Review Started">
+      <bpmn:outgoing>sdtm_flow1</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <!-- Step 1: Upload SDTM files + enter study ID (serviceTask so trialo:user-task worker picks it up) -->
+    <bpmn:serviceTask id="sdtm_upload" name="Upload SDTM Files">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="trialo:user-task"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="form_id" value="form-sdtm-upload"/>
+          <zeebe:header key="assignee_role" value="analyst|data_manager"/>
+          <zeebe:header key="sla_hours" value="48"/>
+        </zeebe:taskHeaders>
+        <zeebe:ioMapping>
+          <zeebe:output source="=study_id" target="study_id"/>
+          <zeebe:output source="=sdtm_files" target="sdtm_files"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>sdtm_flow1</bpmn:incoming>
+      <bpmn:outgoing>sdtm_flow2</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Step 2: Interactive Q&A with SDTM Explorer agent (serviceTask so trialo:user-task worker picks it up) -->
+    <bpmn:serviceTask id="sdtm_review" name="SDTM Data Review">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="trialo:user-task"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="form_id" value="form-sdtm-review"/>
+          <zeebe:header key="assignee_role" value="analyst|data_manager"/>
+          <zeebe:header key="sla_hours" value="72"/>
+        </zeebe:taskHeaders>
+        <zeebe:ioMapping>
+          <zeebe:input source="=study_id" target="study_id"/>
+          <zeebe:output source="=review_notes" target="review_notes"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>sdtm_flow2</bpmn:incoming>
+      <bpmn:outgoing>sdtm_flow3</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <bpmn:endEvent id="sdtm_end" name="Review Complete">
+      <bpmn:incoming>sdtm_flow3</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <bpmn:sequenceFlow id="sdtm_flow1" sourceRef="sdtm_start" targetRef="sdtm_upload"/>
+    <bpmn:sequenceFlow id="sdtm_flow2" sourceRef="sdtm_upload" targetRef="sdtm_review"/>
+    <bpmn:sequenceFlow id="sdtm_flow3" sourceRef="sdtm_review" targetRef="sdtm_end"/>
+
+  </bpmn:process>
+</bpmn:definitions>

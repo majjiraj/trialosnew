@@ -1,0 +1,22 @@
+{
+  "org_id": "00000000-0000-0000-0000-000000000000",
+  "name": "SDTM Domain Summarizer",
+  "description": "Reads a SDTM domain from the Silver layer and returns a statistical summary with key field frequencies",
+  "skill_type": "function",
+  "body": "import json, collections\n\ndomain = params.get('domain', 'AE').upper()\ndata = state_data.get('read_sdtm', {}).get('records', [])\n\nif not data:\n    result = {'summary': f'No {domain} data found.', 'record_count': 0}\nelse:\n    count = len(data)\n    key_fields = {\n        'AE': ['AETERM', 'AESEV', 'AESER', 'AEOUT'],\n        'LB': ['LBTEST', 'LBSTRESN', 'LBNRIND'],\n        'VS': ['VSTESTCD', 'VSSTRESN'],\n        'DM': ['SEX', 'RACE', 'AGE'],\n    }.get(domain, [])\n    \n    freq = {}\n    for field in key_fields:\n        vals = [r.get(field) for r in data if r.get(field)]\n        if vals:\n            freq[field] = dict(collections.Counter(vals).most_common(5))\n    \n    result = {\n        'summary': f'{count} {domain} records found.',\n        'record_count': count,\n        'key_frequencies': freq,\n    }",
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "domain": {
+        "type": "string",
+        "description": "SDTM domain code (AE, LB, VS, DM, etc.)"
+      },
+      "study_id": {
+        "type": "string",
+        "description": "Study ID"
+      }
+    }
+  },
+  "tags": ["sdtm", "analysis", "statistics"],
+  "created_by": "00000000-0000-0000-0000-000000000010"
+}

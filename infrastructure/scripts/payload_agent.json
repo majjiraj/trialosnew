@@ -1,0 +1,105 @@
+{
+  "org_id": "00000000-0000-0000-0000-000000000000",
+  "created_by": "00000000-0000-0000-0000-000000000010",
+  "name": "SDTM Data Analyst",
+  "description": "Conversational agent for analyzing SDTM clinical trial datasets. Queries the SDTM knowledge graph using a retrieval pipeline with feedback biases and decision traces for full explainability and trust.",
+  "category": "data_management",
+  "agent_purpose": "statistical_analysis",
+  "data_sources": [
+    "sdtm_files",
+    "context_graph"
+  ],
+  "output_format": "narrative",
+  "agent_mode": "standard",
+  "flow_definition": {
+    "nodes": [
+      {
+        "id": "input_message",
+        "type": "input",
+        "label": "User Query",
+        "config": {
+          "inputKey": "message"
+        }
+      },
+      {
+        "id": "input_history",
+        "type": "input",
+        "label": "Conversation History",
+        "config": {
+          "inputKey": "history"
+        }
+      },
+      {
+        "id": "input_documents",
+        "type": "input",
+        "label": "Document IDs",
+        "config": {
+          "inputKey": "document_ids"
+        }
+      },
+      {
+        "id": "knowledge_lookup",
+        "type": "context_graph",
+        "label": "SDTM Knowledge Lookup",
+        "config": {
+          "query_template": "{{input_message}} SDTM clinical trial data analysis variables",
+          "top_k": 10,
+          "include_lineage": true,
+          "include_framing": true,
+          "document_ids_from_input": true,
+          "context_types": [
+            "sdtm_domain",
+            "sdtm_variable",
+            "codelist",
+            "chunk",
+            "document"
+          ]
+        }
+      },
+      {
+        "id": "analyze_respond",
+        "type": "llm",
+        "label": "Analyze & Respond",
+        "config": {
+          "provider": "ollama",
+          "model": "gemma:latest",
+          "temperature": 0.0,
+          "systemPrompt": "You are an expert CDISC SDTM data analyst for clinical trials. Answer questions using ONLY the retrieved context provided in the user message. State exact numbers as given.",
+          "prompt": "Retrieved SDTM Knowledge Context:\n{{knowledge_lookup}}\n\nConversation History:\n{{input_history}}\n\nInstructions:\n- Answer ONLY using the retrieved context above. Do not invent numbers or terms.\n- The DATASET STATISTICS block immediately above contains the authoritative counts — use those exact numbers. In SDTM datasets, \"Variables\" = columns.\n- Cite SDTM variables (e.g. AETERM, AESEV, USUBJID) and document names when referencing data.\n- If the context does not contain enough information, say so clearly.\n- Explain your reasoning step by step.\n\nQuestion: {{input_message}}"
+        }
+      },
+      {
+        "id": "output_result",
+        "type": "output",
+        "label": "Analysis Result",
+        "config": {}
+      }
+    ],
+    "edges": [
+      {
+        "source": "input_message",
+        "target": "knowledge_lookup"
+      },
+      {
+        "source": "input_documents",
+        "target": "knowledge_lookup"
+      },
+      {
+        "source": "input_message",
+        "target": "analyze_respond"
+      },
+      {
+        "source": "input_history",
+        "target": "analyze_respond"
+      },
+      {
+        "source": "knowledge_lookup",
+        "target": "analyze_respond"
+      },
+      {
+        "source": "analyze_respond",
+        "target": "output_result"
+      }
+    ]
+  }
+}

@@ -1,0 +1,59 @@
+apiVersion: argoproj.io/v1alpha1
+kind: Application
+metadata:
+  name: trialo-core
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: trialo-core
+    app.kubernetes.io/part-of: trialo
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  project: trialo
+
+  source:
+    repoURL: https://github.com/your-org/trialo
+    targetRevision: HEAD
+    path: infrastructure/helm/trialo-core
+    helm:
+      valueFiles:
+        - values.yaml
+        - values-prod.yaml
+      # Secrets injected at deploy time via ArgoCD vault plugin or sealed-secrets
+      # parameters:
+      #   - name: secrets.ANTHROPIC_API_KEY
+      #     value: $ANTHROPIC_API_KEY
+
+  destination:
+    server: https://kubernetes.default.svc
+    namespace: trialo
+
+  syncPolicy:
+    automated:
+      prune: true
+      selfHeal: true
+    syncOptions:
+      - CreateNamespace=true
+      - ServerSideApply=true
+      - RespectIgnoreDifferences=true
+    retry:
+      limit: 5
+      backoff:
+        duration: 5s
+        factor: 2
+        maxDuration: 3m
+
+  ignoreDifferences:
+    # HPA manages replica counts at runtime
+    - group: apps
+      kind: Deployment
+      jsonPointers:
+        - /spec/replicas
+    # Allow cert-manager to manage TLS secrets
+    - group: ""
+      kind: Secret
+      name: trialo-tls
+      jsonPointers:
+        - /data
+
+  revisionHistoryLimit: 5

@@ -1,0 +1,87 @@
+---
+# Data ingestion and pipeline events
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: trialo-events-data
+  namespace: trialo
+  labels:
+    strimzi.io/cluster: trialo-kafka
+spec:
+  partitions: 12
+  replicas: 3
+  topicName: trialo.events.data
+  config:
+    retention.ms: "604800000"       # 7 days
+    retention.bytes: "5368709120"   # 5 GB
+    segment.ms: "86400000"          # 1 day
+    cleanup.policy: "delete"
+    compression.type: "lz4"
+    max.message.bytes: "10485760"   # 10 MB
+    min.insync.replicas: "2"
+
+---
+# Agent execution events
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: trialo-events-agents
+  namespace: trialo
+  labels:
+    strimzi.io/cluster: trialo-kafka
+spec:
+  partitions: 6
+  replicas: 3
+  topicName: trialo.events.agents
+  config:
+    retention.ms: "2592000000"      # 30 days (audit trail)
+    retention.bytes: "2147483648"   # 2 GB
+    segment.ms: "86400000"
+    cleanup.policy: "delete"
+    compression.type: "lz4"
+    max.message.bytes: "1048576"    # 1 MB
+    min.insync.replicas: "2"
+
+---
+# Study lifecycle events (enrollment, status changes, etc.)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: trialo-events-study
+  namespace: trialo
+  labels:
+    strimzi.io/cluster: trialo-kafka
+spec:
+  partitions: 6
+  replicas: 3
+  topicName: trialo.events.study
+  config:
+    retention.ms: "2592000000"      # 30 days
+    retention.bytes: "1073741824"   # 1 GB
+    segment.ms: "86400000"
+    cleanup.policy: "delete"
+    compression.type: "lz4"
+    max.message.bytes: "524288"     # 512 KB
+    min.insync.replicas: "2"
+
+---
+# System/platform events (notifications, auth events, etc.)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: trialo-events-system
+  namespace: trialo
+  labels:
+    strimzi.io/cluster: trialo-kafka
+spec:
+  partitions: 3
+  replicas: 3
+  topicName: trialo.events.system
+  config:
+    retention.ms: "604800000"       # 7 days
+    retention.bytes: "536870912"    # 512 MB
+    segment.ms: "86400000"
+    cleanup.policy: "delete"
+    compression.type: "lz4"
+    max.message.bytes: "524288"     # 512 KB
+    min.insync.replicas: "2"

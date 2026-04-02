@@ -1,0 +1,18 @@
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: trialo-config
+  namespace: {{ .Release.Namespace }}
+  labels:
+    {{- include "trialo-core.labels" . | nindent 4 }}
+data:
+  BRONZE_BUCKET: "trialo-bronze"
+  SILVER_BUCKET: "trialo-silver"
+  GOLD_BUCKET: "trialo-gold"
+  ARTIFACTS_BUCKET: "trialo-artifacts"
+  LOG_LEVEL: "info"
+  ENVIRONMENT: "production"
+  OCR_PROVIDER: "tesseract"
+  ORG_ID: {{ .Values.global.orgId | quote }}
+  REDIS_URL: "redis://{{ include "trialo-core.fullname" . }}-redis-master:6379"
+  OPA_URL: "http://trialo-opa:8181"

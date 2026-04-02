@@ -1,0 +1,160 @@
+%%{init: {"theme": "base", "themeVariables": {"primaryColor":"#1e40af","primaryTextColor":"#ffffff","primaryBorderColor":"#1e3a8a","lineColor":"#64748b","secondaryColor":"#0f172a","tertiaryColor":"#f8fafc","background":"#f8fafc","fontSize":"14px"}}}%%
+flowchart TB
+
+    %% ── Users ───────────────────────────────────────────────────────────────────
+    subgraph USERS["👥  Users"]
+        direction LR
+        U1["🔬 Clinical Data Managers"]
+        U2["📋 Study Coordinators"]
+        U3["🏥 Medical Reviewers / HITL Approvers"]
+        U4["🔧 Platform Administrators"]
+    end
+
+    %% ── Frontend ─────────────────────────────────────────────────────────────────
+    subgraph FE["🖥️  Presentation Layer"]
+        direction LR
+        NEXT["⚡ Next.js 14 Frontend\n:3000 · App Router · Tailwind\nReactFlow · @xyflow/react"]
+    end
+
+    %% ── Gateway ──────────────────────────────────────────────────────────────────
+    subgraph GW["🔀  API Gateway Layer"]
+        direction LR
+        GQL["🔷 GraphQL API Gateway\n:4000 · Node.js · Apollo Server\nUnified schema · JWT validation"]
+        AUTH["🔐 Auth Service\n:8001 · FastAPI · Auth0 + JWT\n21 CFR Part 11 sessions"]
+        OPA["🛡️ OPA Policy Engine\n:8181 · Open Policy Agent\nAttribute-based access control"]
+    end
+
+    %% ── Core Services ─────────────────────────────────────────────────────────────
+    subgraph CORE["⚙️  Core Application Services"]
+        direction TB
+        subgraph ROW1["  "]
+            direction LR
+            INGEST["📥 Ingestion Service\n:8003 · FastAPI\nXLS · XPT · SAS · PDF · DICOM\nEmbedding pipeline · Bronze layer"]
+            RUNTIME["🤖 Agent Runtime\n:8004 · FastAPI\nFlow execution · HITL tasks\nTool orchestration · Streaming"]
+            MKT["🛒 Marketplace\n:8005 · FastAPI\nAgent registry · Vibe Builder\nPublish / install flows"]
+        end
+        subgraph ROW2["  "]
+            direction LR
+            CTXG["🕸️ Context Graph\n:8008 · FastAPI · Neo4j\nDecision traces · RAG context\nKnowledge graph · Embeddings"]
+            NOTIF["🔔 Notification Service\n:8006 · FastAPI\nEmail · In-app · SendGrid\nApproval workflows"]
+            AUDIT["📜 Audit Service\n:8002 · FastAPI\n21 CFR Part 11 trail\nImmutable event log"]
+        end
+        subgraph ROW3["  "]
+            direction LR
+            APPCOMP["🧩 App Composer\n:8009 · Node.js/Express\nDynamic UI builder\nApp config management"]
+            FORM["📝 Form Engine\n:8010 · Node.js/Express\nDynamic forms · Validation\nCRF / eCOA support"]
+            WFBRIDGE["🔄 Workflow Bridge\n:8011 · Node.js/Express\nZeebe BPMN orchestration\nHuman task routing"]
+        end
+    end
+
+    %% ── Data Storage ──────────────────────────────────────────────────────────────
+    subgraph DATA["🗄️  Data & Storage"]
+        direction LR
+        PG["🐘 PostgreSQL + pgvector\n:5432 · pg16\nRelational data · Vector index\nAll service schemas"]
+        MONGO["🍃 MongoDB\n:27017\nDocument store · App configs\nForm definitions · JSON blobs"]
+        MINIO["📦 MinIO Object Storage\n:9000 / :9001\nS3-compatible · Artifacts\nUploads · ADaM outputs"]
+        NEO4J["🕸 Neo4j\n:7474 / :7687\nKnowledge graph\nDecisions · Feedback · Traces"]
+    end
+
+    %% ── Events & Workflow ─────────────────────────────────────────────────────────
+    subgraph EVENTS["⚡  Events & Process Orchestration"]
+        direction LR
+        KAFKA["📨 Apache Kafka\n:9092 · KRaft mode\nAsync event bus\nTopics: data · agents · study · system"]
+        ZEEBE["⚙️ Zeebe 8.5\n:26500\nBPMN workflow engine\nLong-running processes"]
+        ES["🔍 Elasticsearch\n:9200\nZeebe exporter\nProcess index · Search"]
+        OPERATE["🖥 Camunda Operate\n:8080\nBPMN monitoring\nProcess visibility"]
+    end
+
+    %% ── AI & Observability ────────────────────────────────────────────────────────
+    subgraph AI["🧠  AI Models & Observability"]
+        direction LR
+        LLM["🤖 LLM Providers\nOpenAI · Anthropic Claude\nAzure OpenAI · Ollama (local)\nllama3.2 · gemma · nomic-embed"]
+        LANGFUSE["📊 Langfuse\n:3100 · LLM Observability\nTrace · Score · Latency\nCost analytics · Experiments"]
+    end
+
+    %% ── External ──────────────────────────────────────────────────────────────────
+    subgraph EXT["🌐  External Services"]
+        direction LR
+        AUTH0["🔑 Auth0\nSSO · MFA · SAML\nEnterprise identity\n21 CFR Part 11 compliant"]
+        SENDGRID["✉️ SendGrid\nTransactional email\nApproval notifications\nAudit alerts"]
+    end
+
+    %% ── Request path ──────────────────────────────────────────────────────────────
+    USERS --> NEXT
+    NEXT -->|"HTTPS / WebSocket"| GQL
+    GQL -->|"JWT validation"| AUTH
+    AUTH -->|"Policy check"| OPA
+    AUTH -->|"SSO / token"| AUTH0
+
+    GQL --> INGEST
+    GQL --> RUNTIME
+    GQL --> MKT
+    GQL --> CTXG
+    GQL --> NOTIF
+    GQL --> AUDIT
+    GQL --> APPCOMP
+    GQL --> FORM
+    GQL --> WFBRIDGE
+
+    %% ── Persistence ───────────────────────────────────────────────────────────────
+    INGEST --> PG
+    RUNTIME --> PG
+    MKT --> PG
+    CTXG --> PG
+    NOTIF --> PG
+    AUDIT --> PG
+    APPCOMP --> PG
+    FORM --> PG
+    WFBRIDGE --> PG
+    AUTH --> PG
+
+    INGEST --> MONGO
+    APPCOMP --> MONGO
+    FORM --> MONGO
+
+    INGEST -->|"Artifacts"| MINIO
+    RUNTIME -->|"Outputs"| MINIO
+
+    CTXG --> NEO4J
+
+    %% ── Events ────────────────────────────────────────────────────────────────────
+    INGEST -->|"doc.ingested"| KAFKA
+    RUNTIME -->|"run.completed\nrun.hitl"| KAFKA
+    AUDIT -->|"event.logged"| KAFKA
+    CTXG -->|"context.updated"| KAFKA
+    WFBRIDGE -->|"task.routed"| KAFKA
+    KAFKA -->|"Alerts"| NOTIF
+
+    %% ── Workflow ──────────────────────────────────────────────────────────────────
+    WFBRIDGE --> ZEEBE
+    ZEEBE -->|"Export"| ES
+    ES --> OPERATE
+
+    %% ── AI calls ──────────────────────────────────────────────────────────────────
+    RUNTIME -->|"Completion\nEmbeddings"| LLM
+    CTXG -->|"Embeddings\nRAG"| LLM
+    INGEST -->|"Chunking\nEmbeddings"| LLM
+    MKT -->|"Vibe Builder\nAgent generation"| LLM
+    RUNTIME -->|"Traces\nScores"| LANGFUSE
+
+    %% ── Notifications ─────────────────────────────────────────────────────────────
+    NOTIF --> SENDGRID
+
+    %% ── Styles ────────────────────────────────────────────────────────────────────
+    classDef userStyle fill:#1e3a8a,stroke:#1e40af,color:#fff,rx:8
+    classDef feStyle fill:#0f766e,stroke:#0d9488,color:#fff,rx:8
+    classDef gwStyle fill:#7c3aed,stroke:#6d28d9,color:#fff,rx:8
+    classDef coreStyle fill:#1d4ed8,stroke:#1e40af,color:#fff,rx:8
+    classDef dataStyle fill:#b45309,stroke:#d97706,color:#fff,rx:8
+    classDef eventStyle fill:#0369a1,stroke:#0284c7,color:#fff,rx:8
+    classDef aiStyle fill:#065f46,stroke:#059669,color:#fff,rx:8
+    classDef extStyle fill:#6b21a8,stroke:#7e22ce,color:#fff,rx:8
+
+    class U1,U2,U3,U4 userStyle
+    class NEXT feStyle
+    class GQL,AUTH,OPA gwStyle
+    class INGEST,RUNTIME,MKT,CTXG,NOTIF,AUDIT,APPCOMP,FORM,WFBRIDGE coreStyle
+    class PG,MONGO,MINIO,NEO4J dataStyle
+    class KAFKA,ZEEBE,ES,OPERATE eventStyle
+    class LLM,LANGFUSE aiStyle
+    class AUTH0,SENDGRID extStyle

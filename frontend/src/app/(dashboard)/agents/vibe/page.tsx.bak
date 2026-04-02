@@ -1,0 +1,706 @@
+'use client'
+import { useState } from 'react'
+import { useRouter } from 'next/navigation'
+import { Wand2, RefreshCw, Save, Edit2, ChevronDown, ChevronUp, AlertTriangle, CheckCircle, Loader2, Plus, Bot, Wrench } from 'lucide-react'
+import { clsx } from 'clsx'
+import { useAuth, useOrgId } from '@/components/layout/AuthContext'
+
+const MARKETPLACE_URL = process.env.NEXT_PUBLIC_MARKETPLACE_URL || 'http://localhost:8005'
+
+async function apiFetch(path: string, body: unknown) {
+  const res = await fetch(`${MARKETPLACE_URL}${path}`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(body),
+  })
+  if (!res.ok) {
+    const err = await res.json().catch(() => ({}))
+    throw new Error(err.detail || `HTTP ${res.status}`)
+  }
+  return res.json()
+}
+
+type TargetType = 'agent' | 'skill'
+
+interface ArtifactSet {
+  // Agent fields
+  agent_spec?: Record<string, unknown>
+  allowed_purposes?: string[]
+  retrieval_recipe?: Record<string, unknown>
+  output_schema?: Record<string, unknown>
+  prompt_contract?: Record<string, unknown>
+  flow_definition?: Record<string, unknown>
+  test_cases?: unknown[]
+  // Skill fields
+  skill_spec?: Record<string, unknown>
+  input_output_contract?: Record<string, unknown>
+  execution_type?: string
+  safety_constraints?: string[]
+  body?: string
+}
+
+function JsonViewer({ data }: { data: unknown }) {
+  return (
+    <pre className="text-xs bg-slate-50 rounded-lg p-3 overflow-auto max-h-48 text-slate-700 border border-slate-200">
+      {JSON.stringify(data, null, 2)}
+    </pre>
+  )
+}
+
+function ArtifactCard({
+  title,
+  children,
+  onRegenerate,
+  loading,
+  className,
+}: {
+  title: string
+  children: React.ReactNode
+  onRegenerate?: () => void
+  loading?: boolean
+  className?: string
+}) {
+  const [collapsed, setCollapsed] = useState(false)
+  return (
+    <div className={clsx('border border-slate-200 rounded-xl bg-white overflow-hidden', className)}>
+      <div className="flex items-center justify-between px-4 py-3 bg-slate-50 border-b border-slate-100">
+        <h3 className="text-sm font-semibold text-slate-800">{title}</h3>
+        <div className="flex items-center gap-2">
+          {onRegenerate && (
+            <button
+              onClick={onRegenerate}
+              disabled={loading}
+              title="Regenerate this section"
+              className="p-1 rounded text-slate-400 hover:text-brand-600 hover:bg-brand-50 transition-colors disabled:opacity-40"
+            >
+              {loading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+            </button>
+          )}
+          <button onClick={() => setCollapsed(c => !c)} className="p-1 rounded text-slate-400 hover:text-slate-600">
+            {collapsed ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronUp className="w-3.5 h-3.5" />}
+          </button>
+        </div>
+      </div>
+      {!collapsed && <div className="p-4">{children}</div>}
+    </div>
+  )
+}
+
+function FlowPreview({ flow }: { flow: Record<string, unknown> }) {
+  const nodes = (flow.nodes as Array<Record<string, unknown>>) || []
+  const edges = (flow.edges as Array<Record<string, unknown>>) || []
+  if (!nodes.length) return <p className="text-xs text-slate-400">No nodes generated</p>
+  return (
+    <div className="space-y-2">
+      <div className="flex flex-wrap gap-2">
+        {nodes.map((n, i) => (
+          <div key={i} className={clsx(
+            'px-2.5 py-1 rounded-lg text-xs font-medium border',
+            n.type === 'hitl' ? 'bg-amber-50 border-amber-200 text-amber-700' :
+            n.type === 'llm' ? 'bg-brand-50 border-brand-200 text-brand-700' :
+            n.type === 'output' ? 'bg-green-50 border-green-200 text-green-700' :
+            n.type === 'condition' ? 'bg-purple-50 border-purple-200 text-purple-700' :
+            'bg-slate-50 border-slate-200 text-slate-600'
+          )}>
+            {String(n.label || n.type)}
+          </div>
+        ))}
+      </div>
+      <p className="text-xs text-slate-400">{nodes.length} nodes · {edges.length} edges</p>
+    </div>
+  )
+}
+
+export default function VibePage() {
+  const { user } = useAuth()
+  const orgId = useOrgId()
+  const router = useRouter()
+
+  const [targetType, setTargetType] = useState<TargetType>('agent')
+  const [description, setDescription] = useState('')
+  const [refinement, setRefinement] = useState('')
+  const [artifacts, setArtifacts] = useState<ArtifactSet | null>(null)
+  const [warnings, setWarnings] = useState<string[]>([])
+  const [confidence, setConfidence] = useState(0)
+  const [loading, setLoading] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [refining, setRefining] = useState(false)
+  const [sectionRefining, setSectionRefining] = useState<string | null>(null)
+  const [editingSection, setEditingSection] = useState<string | null>(null)
+  const [editValue, setEditValue] = useState('')
+  const [error, setError] = useState('')
+
+  async function handleGenerate() {
+    if (!description.trim() || !orgId) return
+    setLoading(true)
+    setError('')
+    try {
+      const res = await apiFetch('/agents/vibe-build', {
+        org_id: orgId,
+        description: description.trim(),
+        target_type: targetType,
+        context: {},
+      })
+      setArtifacts(res.artifacts)
+      setWarnings(res.warnings || [])
+      setConfidence(res.confidence || 0)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Generation failed')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  async function handleRefine() {
+    if (!refinement.trim() || !artifacts || !orgId) return
+    setRefining(true)
+    setError('')
+    try {
+      const res = await apiFetch('/agents/vibe-refine', {
+        org_id: orgId,
+        previous_artifacts: { target_type: targetType, artifacts },
+        refinement: refinement.trim(),
+      })
+      setArtifacts(res.artifacts)
+      setWarnings(res.warnings || [])
+      setConfidence(res.confidence || 0)
+      setRefinement('')
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Refinement failed')
+    } finally {
+      setRefining(false)
+    }
+  }
+
+  async function handleSectionRegenerate(section: string) {
+    if (!artifacts || !orgId) return
+    setSectionRefining(section)
+    setError('')
+    try {
+      const res = await apiFetch('/agents/vibe-refine', {
+        org_id: orgId,
+        previous_artifacts: { target_type: targetType, artifacts },
+        refinement: `Regenerate the ${section} section`,
+        section,
+      })
+      setArtifacts(res.artifacts)
+      setWarnings(res.warnings || [])
+      setConfidence(res.confidence || 0)
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Regeneration failed')
+    } finally {
+      setSectionRefining(null)
+    }
+  }
+
+  function startEdit(section: string, value: unknown) {
+    setEditingSection(section)
+    setEditValue(typeof value === 'string' ? value : JSON.stringify(value, null, 2))
+  }
+
+  function applyEdit(section: string) {
+    if (!artifacts) return
+    try {
+      const parsed = JSON.parse(editValue)
+      setArtifacts({ ...artifacts, [section]: parsed })
+    } catch {
+      setArtifacts({ ...artifacts, [section]: editValue })
+    }
+    setEditingSection(null)
+  }
+
+  async function handleSave() {
+    if (!artifacts || !orgId || !user) return
+    setSaving(true)
+    setError('')
+    try {
+      const res = await apiFetch('/agents/vibe-save', {
+        org_id: orgId,
+        created_by: user.id,
+        target_type: targetType,
+        artifacts,
+      })
+      if (res.target_type === 'agent') {
+        router.push(`/agents/${res.slug || res.agent_id}`)
+      } else {
+        router.push('/agents/skills')
+      }
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : 'Save failed')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const isAgent = targetType === 'agent'
+  const hasArtifacts = !!artifacts
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="px-6 py-4 border-b border-slate-200 bg-white">
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-brand-500 rounded-lg flex items-center justify-center">
+            <Wand2 className="w-4 h-4 text-white" />
+          </div>
+          <div>
+            <h1 className="text-xl font-bold text-slate-900">Vibe Builder</h1>
+            <p className="text-xs text-slate-500">Describe what you want — get a complete, saveable agent or skill</p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex-1 flex overflow-hidden">
+        {/* LEFT PANEL */}
+        <div className="w-80 flex-shrink-0 border-r border-slate-200 bg-white flex flex-col">
+          <div className="flex-1 p-4 space-y-4 overflow-y-auto">
+            {/* Target type */}
+            <div>
+              <p className="text-xs font-medium text-slate-500 mb-2">Build a</p>
+              <div className="flex rounded-lg border border-slate-200 overflow-hidden">
+                <button
+                  onClick={() => { setTargetType('agent'); setArtifacts(null) }}
+                  className={clsx('flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-colors',
+                    targetType === 'agent' ? 'bg-brand-500 text-white' : 'text-slate-600 hover:bg-slate-50')}
+                >
+                  <Bot className="w-3.5 h-3.5" /> Agent
+                </button>
+                <button
+                  onClick={() => { setTargetType('skill'); setArtifacts(null) }}
+                  className={clsx('flex-1 flex items-center justify-center gap-1.5 py-2 text-sm font-medium transition-colors',
+                    targetType === 'skill' ? 'bg-brand-500 text-white' : 'text-slate-600 hover:bg-slate-50')}
+                >
+                  <Wrench className="w-3.5 h-3.5" /> Skill
+                </button>
+              </div>
+            </div>
+
+            {/* Description */}
+            <div>
+              <label className="text-xs font-medium text-slate-500 mb-1.5 block">
+                What do you want to build?
+              </label>
+              <textarea
+                value={description}
+                onChange={e => setDescription(e.target.value)}
+                placeholder={isAgent
+                  ? "e.g. I want an agent that reviews SDTM AE domain for high-severity adverse events and creates a human review task before issuing a safety signal"
+                  : "e.g. Transform raw EDC date fields in DD-MON-YYYY format to ISO 8601 YYYY-MM-DD"
+                }
+                rows={7}
+                className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-brand-500 text-slate-700 placeholder-slate-300"
+              />
+            </div>
+
+            <button
+              onClick={handleGenerate}
+              disabled={loading || !description.trim()}
+              className="w-full flex items-center justify-center gap-2 py-2.5 bg-brand-500 hover:bg-brand-600 disabled:opacity-50 text-white text-sm font-medium rounded-lg transition-colors"
+            >
+              {loading ? <Loader2 className="w-4 h-4 animate-spin" /> : <Wand2 className="w-4 h-4" />}
+              {loading ? 'Generating...' : 'Generate'}
+            </button>
+
+            {/* Confidence & warnings */}
+            {hasArtifacts && (
+              <div className="space-y-2">
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-slate-500">Confidence</span>
+                  <span className={clsx('font-semibold',
+                    confidence >= 0.8 ? 'text-green-600' :
+                    confidence >= 0.6 ? 'text-amber-600' : 'text-red-600'
+                  )}>
+                    {Math.round(confidence * 100)}%
+                  </span>
+                </div>
+                <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                  <div
+                    className={clsx('h-full rounded-full transition-all',
+                      confidence >= 0.8 ? 'bg-green-500' :
+                      confidence >= 0.6 ? 'bg-amber-400' : 'bg-red-400'
+                    )}
+                    style={{ width: `${Math.round(confidence * 100)}%` }}
+                  />
+                </div>
+                {warnings.length > 0 && (
+                  <div className="bg-amber-50 border border-amber-200 rounded-lg p-2.5 space-y-1">
+                    {warnings.map((w, i) => (
+                      <div key={i} className="flex items-start gap-1.5 text-xs text-amber-700">
+                        <AlertTriangle className="w-3 h-3 mt-0.5 flex-shrink-0" />
+                        <span>{w}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Refine */}
+            {hasArtifacts && (
+              <div>
+                <label className="text-xs font-medium text-slate-500 mb-1.5 block">
+                  Refine
+                </label>
+                <textarea
+                  value={refinement}
+                  onChange={e => setRefinement(e.target.value)}
+                  placeholder="e.g. also include ADaM ADAE domain and add a condition node to filter AESEV = SEVERE"
+                  rows={3}
+                  className="w-full text-sm border border-slate-200 rounded-lg px-3 py-2 resize-none focus:outline-none focus:ring-2 focus:ring-brand-500 text-slate-700 placeholder-slate-300"
+                />
+                <button
+                  onClick={handleRefine}
+                  disabled={refining || !refinement.trim()}
+                  className="mt-1.5 w-full flex items-center justify-center gap-2 py-2 border border-brand-300 text-brand-600 hover:bg-brand-50 disabled:opacity-50 text-sm font-medium rounded-lg transition-colors"
+                >
+                  {refining ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <RefreshCw className="w-3.5 h-3.5" />}
+                  {refining ? 'Refining...' : 'Apply Refinement'}
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Save button */}
+          {hasArtifacts && (
+            <div className="p-4 border-t border-slate-200">
+              {error && (
+                <p className="text-xs text-red-600 mb-2 flex items-center gap-1">
+                  <AlertTriangle className="w-3 h-3" />{error}
+                </p>
+              )}
+              <button
+                onClick={handleSave}
+                disabled={saving}
+                className="w-full flex items-center justify-center gap-2 py-2.5 bg-green-600 hover:bg-green-700 disabled:opacity-50 text-white text-sm font-semibold rounded-lg transition-colors"
+              >
+                {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <Save className="w-4 h-4" />}
+                {saving ? 'Saving...' : `Save ${isAgent ? 'Agent' : 'Skill'}`}
+              </button>
+            </div>
+          )}
+        </div>
+
+        {/* RIGHT PANEL */}
+        <div className="flex-1 overflow-y-auto bg-slate-50">
+          {!hasArtifacts ? (
+            <div className="flex flex-col items-center justify-center h-full text-center px-8">
+              <div className="w-14 h-14 bg-brand-50 rounded-2xl flex items-center justify-center mb-4">
+                <Wand2 className="w-7 h-7 text-brand-400" />
+              </div>
+              <h2 className="text-lg font-semibold text-slate-700 mb-2">Describe your {isAgent ? 'agent' : 'skill'}</h2>
+              <p className="text-sm text-slate-400 max-w-xs">
+                Type a description on the left and click Generate. In seconds you&apos;ll get a
+                complete, ready-to-save {isAgent ? 'agent with flow definition, prompt contract, and test cases' : 'skill with input/output schema, code body, and test cases'}.
+              </p>
+            </div>
+          ) : (
+            <div className="p-6 space-y-4">
+              {error && (
+                <div className="bg-red-50 border border-red-200 rounded-xl p-3 flex items-center gap-2 text-sm text-red-700">
+                  <AlertTriangle className="w-4 h-4 flex-shrink-0" />{error}
+                </div>
+              )}
+
+              {isAgent ? (
+                <>
+                  {/* Agent Spec */}
+                  <ArtifactCard
+                    title="Agent Spec"
+                    onRegenerate={() => handleSectionRegenerate('agent_spec')}
+                    loading={sectionRefining === 'agent_spec'}
+                  >
+                    {editingSection === 'agent_spec' ? (
+                      <div className="space-y-2">
+                        <textarea value={editValue} onChange={e => setEditValue(e.target.value)}
+                          rows={6} className="w-full text-xs font-mono border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                        <div className="flex gap-2">
+                          <button onClick={() => applyEdit('agent_spec')} className="px-3 py-1 bg-brand-500 text-white text-xs rounded-lg">Apply</button>
+                          <button onClick={() => setEditingSection(null)} className="px-3 py-1 bg-slate-100 text-slate-600 text-xs rounded-lg">Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <div>
+                            <p className="font-semibold text-slate-900">{String(artifacts.agent_spec?.name || '—')}</p>
+                            <p className="text-xs text-slate-500 mt-0.5">{String(artifacts.agent_spec?.description || '')}</p>
+                          </div>
+                          <button onClick={() => startEdit('agent_spec', artifacts.agent_spec)} className="p-1 text-slate-400 hover:text-brand-600 flex-shrink-0">
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5 mt-2">
+                          {(artifacts.agent_spec?.category as string | undefined) && (
+                            <span className="px-2 py-0.5 bg-brand-50 text-brand-700 border border-brand-100 rounded text-xs">{String(artifacts.agent_spec!.category)}</span>
+                          )}
+                          {(artifacts.agent_spec?.agent_mode as string | undefined) && (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">{String(artifacts.agent_spec!.agent_mode)}</span>
+                          )}
+                          {(artifacts.agent_spec?.version as string | undefined) && (
+                            <span className="px-2 py-0.5 bg-slate-100 text-slate-500 rounded text-xs">v{String(artifacts.agent_spec!.version)}</span>
+                          )}
+                        </div>
+                      </div>
+                    )}
+                  </ArtifactCard>
+
+                  {/* Retrieval Recipe */}
+                  <ArtifactCard
+                    title="Retrieval Recipe"
+                    onRegenerate={() => handleSectionRegenerate('retrieval_recipe')}
+                    loading={sectionRefining === 'retrieval_recipe'}
+                  >
+                    <div className="space-y-2">
+                      <div>
+                        <p className="text-xs font-medium text-slate-500 mb-1">Data Sources</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {((artifacts.retrieval_recipe?.data_sources as string[]) || []).map((s, i) => (
+                            <span key={i} className="px-2 py-0.5 bg-blue-50 text-blue-700 border border-blue-100 rounded text-xs">{s}</span>
+                          ))}
+                        </div>
+                      </div>
+                      <div>
+                        <p className="text-xs font-medium text-slate-500 mb-1">Declared Tools</p>
+                        <div className="flex flex-wrap gap-1.5">
+                          {((artifacts.retrieval_recipe?.declared_tools as string[]) || []).map((t, i) => (
+                            <span key={i} className="px-2 py-0.5 bg-green-50 text-green-700 border border-green-100 rounded text-xs font-mono">{t}</span>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+                  </ArtifactCard>
+
+                  {/* Prompt Contract */}
+                  <ArtifactCard
+                    title="Prompt Contract"
+                    onRegenerate={() => handleSectionRegenerate('prompt_contract')}
+                    loading={sectionRefining === 'prompt_contract'}
+                  >
+                    {editingSection === 'prompt_contract' ? (
+                      <div className="space-y-2">
+                        <textarea value={editValue} onChange={e => setEditValue(e.target.value)}
+                          rows={8} className="w-full text-xs font-mono border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                        <div className="flex gap-2">
+                          <button onClick={() => applyEdit('prompt_contract')} className="px-3 py-1 bg-brand-500 text-white text-xs rounded-lg">Apply</button>
+                          <button onClick={() => setEditingSection(null)} className="px-3 py-1 bg-slate-100 text-slate-600 text-xs rounded-lg">Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <div className="flex items-start justify-between gap-2">
+                          <p className="text-xs text-slate-500 font-medium">System Prompt</p>
+                          <button onClick={() => startEdit('prompt_contract', artifacts.prompt_contract)} className="p-1 text-slate-400 hover:text-brand-600 flex-shrink-0">
+                            <Edit2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                        <pre className="text-xs bg-slate-50 rounded-lg p-3 border border-slate-200 text-slate-700 whitespace-pre-wrap max-h-32 overflow-y-auto">
+                          {String((artifacts.prompt_contract as Record<string, unknown>)?.system_prompt || '—')}
+                        </pre>
+                        {!!(artifacts.prompt_contract as Record<string, unknown>)?.expertise_scaffold && (
+                          <div className="grid grid-cols-2 gap-2 mt-2">
+                            {Object.entries((artifacts.prompt_contract as Record<string, Record<string, unknown>>).expertise_scaffold || {}).map(([k, v]) => (
+                              <div key={k}>
+                                <p className="text-xs text-slate-400">{k}</p>
+                                <p className="text-xs text-slate-700 truncate">{typeof v === 'string' ? v : JSON.stringify(v)}</p>
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </ArtifactCard>
+
+                  {/* Flow Definition */}
+                  <ArtifactCard
+                    title={`Flow Definition (${((artifacts.flow_definition?.nodes as unknown[]) || []).length} nodes)`}
+                    onRegenerate={() => handleSectionRegenerate('flow_definition')}
+                    loading={sectionRefining === 'flow_definition'}
+                  >
+                    {artifacts.flow_definition && <FlowPreview flow={artifacts.flow_definition} />}
+                  </ArtifactCard>
+
+                  {/* Output Schema */}
+                  <ArtifactCard
+                    title="Output Schema"
+                    onRegenerate={() => handleSectionRegenerate('output_schema')}
+                    loading={sectionRefining === 'output_schema'}
+                  >
+                    <div className="space-y-1.5">
+                      {!!(artifacts.output_schema?.format) && (
+                        <p className="text-xs text-slate-600">Format: <span className="font-medium">{String(artifacts.output_schema.format)}</span></p>
+                      )}
+                      {((artifacts.output_schema?.fields as Array<Record<string, string>>) || []).map((f, i) => (
+                        <div key={i} className="flex items-center gap-2 text-xs">
+                          <span className="font-mono text-brand-700 bg-brand-50 px-1.5 py-0.5 rounded">{f.name}</span>
+                          <span className="text-slate-400">{f.type}</span>
+                          <span className="text-slate-500 truncate">{f.description}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </ArtifactCard>
+
+                  {/* Test Cases */}
+                  <ArtifactCard
+                    title={`Test Cases (${(artifacts.test_cases || []).length})`}
+                    onRegenerate={() => handleSectionRegenerate('test_cases')}
+                    loading={sectionRefining === 'test_cases'}
+                  >
+                    <div className="space-y-2">
+                      {(artifacts.test_cases || []).map((tc: unknown, i: number) => {
+                        const t = tc as Record<string, unknown>
+                        return (
+                          <div key={i} className="border border-slate-100 rounded-lg p-3 bg-slate-50">
+                            <div className="flex items-center gap-2 mb-1">
+                              <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
+                              <p className="text-xs font-medium text-slate-800">{String(t.name || `Test ${i + 1}`)}</p>
+                            </div>
+                            {!!t.description && <p className="text-xs text-slate-500 mb-1">{String(t.description)}</p>}
+                            <p className="text-xs text-slate-400">Expected: {String(t.expected_output || '—')}</p>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </ArtifactCard>
+                </>
+              ) : (
+                <>
+                  {/* Skill Spec */}
+                  <ArtifactCard
+                    title="Skill Spec"
+                    onRegenerate={() => handleSectionRegenerate('skill_spec')}
+                    loading={sectionRefining === 'skill_spec'}
+                  >
+                    <div className="space-y-2">
+                      <div className="flex items-start justify-between gap-2">
+                        <div>
+                          <p className="font-semibold text-slate-900">{String(artifacts.skill_spec?.name || '—')}</p>
+                          <p className="text-xs text-slate-500 mt-0.5">{String(artifacts.skill_spec?.description || '')}</p>
+                        </div>
+                        <button onClick={() => startEdit('skill_spec', artifacts.skill_spec)} className="p-1 text-slate-400 hover:text-brand-600 flex-shrink-0">
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5">
+                        {!!(artifacts.skill_spec?.skill_type) && (
+                          <span className="px-2 py-0.5 bg-brand-50 text-brand-700 border border-brand-100 rounded text-xs">{String(artifacts.skill_spec.skill_type)}</span>
+                        )}
+                        {((artifacts.skill_spec?.tags as string[]) || []).map((t, i) => (
+                          <span key={i} className="px-2 py-0.5 bg-slate-100 text-slate-600 rounded text-xs">{t}</span>
+                        ))}
+                      </div>
+                    </div>
+                  </ArtifactCard>
+
+                  {/* Execution Type */}
+                  <ArtifactCard title="Execution Type">
+                    <div className="flex items-center gap-2">
+                      <span className={clsx('px-3 py-1 rounded-full text-sm font-medium',
+                        artifacts.execution_type === 'transformation' ? 'bg-blue-50 text-blue-700 border border-blue-200' :
+                        artifacts.execution_type === 'reasoning' ? 'bg-purple-50 text-purple-700 border border-purple-200' :
+                        artifacts.execution_type === 'query' ? 'bg-green-50 text-green-700 border border-green-200' :
+                        'bg-amber-50 text-amber-700 border border-amber-200'
+                      )}>
+                        {artifacts.execution_type || 'reasoning'}
+                      </span>
+                      <p className="text-xs text-slate-500">
+                        {artifacts.execution_type === 'transformation' ? 'Transforms input data into a new format or structure' :
+                         artifacts.execution_type === 'reasoning' ? 'Applies LLM reasoning to produce an answer or decision' :
+                         artifacts.execution_type === 'query' ? 'Queries a data source and returns results' :
+                         'Calls an external tool or API'}
+                      </p>
+                    </div>
+                  </ArtifactCard>
+
+                  {/* Input/Output Contract */}
+                  <ArtifactCard
+                    title="Input / Output Contract"
+                    onRegenerate={() => handleSectionRegenerate('input_output_contract')}
+                    loading={sectionRefining === 'input_output_contract'}
+                  >
+                    <div className="space-y-2">
+                      <p className="text-xs font-medium text-slate-500">Input Schema</p>
+                      <JsonViewer data={(artifacts.input_output_contract as Record<string, unknown>)?.input_schema || {}} />
+                      <p className="text-xs font-medium text-slate-500">Output Schema</p>
+                      <JsonViewer data={(artifacts.input_output_contract as Record<string, unknown>)?.output_schema || {}} />
+                    </div>
+                  </ArtifactCard>
+
+                  {/* Safety Constraints */}
+                  {(artifacts.safety_constraints || []).length > 0 && (
+                    <ArtifactCard title="Safety Constraints">
+                      <ul className="space-y-1">
+                        {(artifacts.safety_constraints || []).map((c, i) => (
+                          <li key={i} className="flex items-start gap-2 text-xs text-slate-600">
+                            <span className="w-1.5 h-1.5 rounded-full bg-amber-400 mt-1.5 flex-shrink-0" />
+                            {c}
+                          </li>
+                        ))}
+                      </ul>
+                    </ArtifactCard>
+                  )}
+
+                  {/* Body */}
+                  <ArtifactCard
+                    title="Body"
+                    onRegenerate={() => handleSectionRegenerate('body')}
+                    loading={sectionRefining === 'body'}
+                  >
+                    {editingSection === 'body' ? (
+                      <div className="space-y-2">
+                        <textarea value={editValue} onChange={e => setEditValue(e.target.value)}
+                          rows={14} className="w-full text-xs font-mono border border-slate-200 rounded-lg p-2 focus:outline-none focus:ring-2 focus:ring-brand-500" />
+                        <div className="flex gap-2">
+                          <button onClick={() => applyEdit('body')} className="px-3 py-1 bg-brand-500 text-white text-xs rounded-lg">Apply</button>
+                          <button onClick={() => setEditingSection(null)} className="px-3 py-1 bg-slate-100 text-slate-600 text-xs rounded-lg">Cancel</button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="relative">
+                        <button onClick={() => startEdit('body', artifacts.body || '')} className="absolute top-2 right-2 p-1 text-slate-400 hover:text-brand-600 bg-white rounded">
+                          <Edit2 className="w-3.5 h-3.5" />
+                        </button>
+                        <pre className="text-xs bg-slate-900 text-slate-100 rounded-lg p-4 overflow-auto max-h-64 font-mono">
+                          {artifacts.body || '# No code generated'}
+                        </pre>
+                      </div>
+                    )}
+                  </ArtifactCard>
+
+                  {/* Test Cases */}
+                  <ArtifactCard
+                    title={`Test Cases (${(artifacts.test_cases || []).length})`}
+                    onRegenerate={() => handleSectionRegenerate('test_cases')}
+                    loading={sectionRefining === 'test_cases'}
+                  >
+                    <div className="space-y-2">
+                      {(artifacts.test_cases || []).map((tc: unknown, i: number) => {
+                        const t = tc as Record<string, unknown>
+                        return (
+                          <div key={i} className="border border-slate-100 rounded-lg p-3 bg-slate-50 text-xs">
+                            <div className="flex items-center gap-2 mb-1">
+                              <CheckCircle className="w-3 h-3 text-green-500 flex-shrink-0" />
+                              <p className="font-medium text-slate-800">{String(t.name || `Test ${i + 1}`)}</p>
+                            </div>
+                            <div className="grid grid-cols-2 gap-2 mt-1">
+                              <div>
+                                <p className="text-slate-400 mb-0.5">Input</p>
+                                <pre className="text-slate-600 bg-white rounded p-1.5 border border-slate-100 overflow-auto max-h-16">{JSON.stringify(t.input, null, 1)}</pre>
+                              </div>
+                              <div>
+                                <p className="text-slate-400 mb-0.5">Expected</p>
+                                <p className="text-slate-600">{String(t.expected_output || '—')}</p>
+                              </div>
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  </ArtifactCard>
+                </>
+              )}
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

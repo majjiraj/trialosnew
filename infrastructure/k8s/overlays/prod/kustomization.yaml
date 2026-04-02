@@ -1,0 +1,52 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: trialo-prod
+
+namespace: trialo
+
+bases:
+  - ../../base
+
+# Production patches
+patches:
+  - path: patches.yaml
+
+# Production image tags (pinned SHAs in real deployments)
+images:
+  - name: trialo/auth-service
+    newTag: "1.0.0"
+  - name: trialo/audit-service
+    newTag: "1.0.0"
+  - name: trialo/ingestion-service
+    newTag: "1.0.0"
+  - name: trialo/agent-runtime
+    newTag: "1.0.0"
+  - name: trialo/marketplace
+    newTag: "1.0.0"
+  - name: trialo/notification-service
+    newTag: "1.0.0"
+  - name: trialo/graphql-api
+    newTag: "1.0.0"
+  - name: trialo/frontend
+    newTag: "1.0.0"
+  - name: trialo/data-platform
+    newTag: "1.0.0"
+
+# Override Helm values for prod
+helmCharts:
+  - name: trialo-core
+    releaseName: trialo-core
+    namespace: trialo
+    version: 1.0.0
+    repo: https://github.com/your-org/trialo/infrastructure/helm/trialo-core
+    valuesFile: ../../../../helm/trialo-core/values.yaml
+    additionalValuesFiles:
+      - ../../../../helm/trialo-core/values-prod.yaml
+
+commonLabels:
+  environment: prod
+
+commonAnnotations:
+  trialo.io/environment: "prod"

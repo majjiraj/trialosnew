@@ -1,0 +1,61 @@
+architecture-beta
+    group upstream_sources(cloud)[Study Data and Document Sources]
+    service source_docs(disk)[Protocols SAP CRFs Labs and SDTM Guides] in upstream_sources
+    service source_ops(server)[EDC CTMS and Operational Feeds] in upstream_sources
+
+    group ingestion_layer(cloud)[Ingestion and Normalization]
+    service ingestion(server)[Ingestion Service] in ingestion_layer
+    service bronze(disk)[Bronze Raw Records] in ingestion_layer
+    service doc_store(disk)[Document and Artifact Buckets] in ingestion_layer
+    service kafka_topics(server)[Kafka Topics data agents study system] in ingestion_layer
+
+    group reasoning_layer(cloud)[Context and Agent Reasoning]
+    service context_graph(server)[Context Graph] in reasoning_layer
+    service vector_store(database)[PostgreSQL plus pgvector] in reasoning_layer
+    service agent_runtime(server)[Agent Runtime] in reasoning_layer
+    service built_in_agents(server)[Built in Agents plus SDK] in reasoning_layer
+    service tool_chain(server)[SDTM search report and workflow tools] in reasoning_layer
+
+    group transformation_layer(cloud)[Transformation and Analytics]
+    service data_platform(server)[Data Platform] in transformation_layer
+    service silver(disk)[Silver SDTM Layer] in transformation_layer
+    service gold(disk)[Gold ADaM Layer] in transformation_layer
+
+    group observability_control(cloud)[Observability and Control]
+    service traces(cloud)[Langfuse and Decision Traces] in observability_control
+    service audit(server)[Audit and Query Events] in observability_control
+    service notifications(server)[Notifications and Approvals] in observability_control
+
+    group external_ai(cloud)[External AI and Embeddings]
+    service llm_stack(cloud)[OpenAI plus Anthropic plus Azure OpenAI plus Ollama] in external_ai
+
+    source_docs:R --> L:ingestion
+    source_ops:R --> L:ingestion
+
+    ingestion:B --> T:bronze
+    ingestion:B --> T:doc_store
+    ingestion:R --> L:kafka_topics
+    ingestion:R --> L:llm_stack
+
+    kafka_topics:R --> L:context_graph
+    context_graph:B --> T:vector_store
+    context_graph:R --> L:agent_runtime
+    context_graph:R --> L:llm_stack
+
+    agent_runtime:R --> L:built_in_agents
+    built_in_agents:R --> L:tool_chain
+    tool_chain:B --> T:data_platform
+    tool_chain:B --> T:doc_store
+
+    data_platform:B --> T:silver
+    silver:R --> L:gold
+
+    agent_runtime:B --> T:vector_store
+    agent_runtime:B --> T:doc_store
+    agent_runtime:R --> L:llm_stack
+    agent_runtime:R --> L:traces
+    agent_runtime:R --> L:audit
+    agent_runtime:R --> L:notifications
+
+    data_platform:R --> L:audit
+    kafka_topics:B --> T:audit

@@ -1,0 +1,618 @@
+## Kong Declarative Configuration (deck format)
+## Apply with: deck sync -s infrastructure/kong/kong.yaml
+_format_version: "3.0"
+_transform: true
+
+##############################################################################
+# Plugins (global-level defaults applied to all routes unless overridden)
+##############################################################################
+plugins:
+  # Request ID: inject X-Request-ID on every request for distributed tracing
+  - name: request-id
+    config:
+      header_name: X-Request-ID
+      generator: uuid#counter
+      echo_downstream: true
+
+  # Prometheus metrics endpoint at /metrics
+  - name: prometheus
+    config:
+      per_consumer: true
+      status_code_metrics: true
+      latency_metrics: true
+      bandwidth_metrics: true
+      upstream_health_metrics: true
+
+  # Security headers on all responses
+  - name: response-transformer
+    config:
+      add:
+        headers:
+          - "X-Content-Type-Options: nosniff"
+          - "X-Frame-Options: DENY"
+          - "X-XSS-Protection: 1; mode=block"
+          - "Strict-Transport-Security: max-age=31536000; includeSubDomains; preload"
+          - "Referrer-Policy: strict-origin-when-cross-origin"
+          - "Content-Security-Policy: default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'"
+
+  # CORS — applied globally; per-service overrides below
+  - name: cors
+    config:
+      origins:
+        - "https://trialo.local"
+        - "https://*.trialo.io"
+      methods:
+        - GET
+        - POST
+        - PUT
+        - PATCH
+        - DELETE
+        - OPTIONS
+        - HEAD
+      headers:
+        - Accept
+        - Accept-Language
+        - Authorization
+        - Content-Type
+        - X-Request-ID
+        - X-Org-ID
+      exposed_headers:
+        - X-Request-ID
+        - X-Rate-Limit-Remaining
+      credentials: true
+      max_age: 3600
+      preflight_continue: false
+
+##############################################################################
+# Upstream services
+##############################################################################
+upstreams:
+  - name: auth-service-upstream
+    algorithm: round-robin
+    healthchecks:
+      passive:
+        unhealthy:
+          http_failures: 3
+          tcp_failures: 3
+          http_statuses: [503, 504]
+      active:
+        healthy:
+          interval: 30
+          successes: 1
+        unhealthy:
+          interval: 10
+          http_failures: 3
+        http_path: /health
+        timeout: 5
+    targets:
+      - target: auth-service.trialo.svc.cluster.local:8001
+        weight: 100
+
+  - name: audit-service-upstream
+    algorithm: round-robin
+    healthchecks:
+      active:
+        healthy:
+          interval: 30
+          successes: 1
+        unhealthy:
+          interval: 10
+          http_failures: 3
+        http_path: /health
+        timeout: 5
+    targets:
+      - target: audit-service.trialo.svc.cluster.local:8002
+        weight: 100
+
+  - name: ingestion-service-upstream
+    algorithm: least-connections
+    healthchecks:
+      active:
+        healthy:
+          interval: 30
+          successes: 1
+        unhealthy:
+          interval: 10
+          http_failures: 3
+        http_path: /health
+        timeout: 5
+    targets:
+      - target: ingestion-service.trialo.svc.cluster.local:8003
+        weight: 100
+
+  - name: agent-runtime-upstream
+    algorithm: least-connections
+    healthchecks:
+      active:
+        healthy:
+          interval: 30
+          successes: 1
+        unhealthy:
+          interval: 10
+          http_failures: 3
+        http_path: /health
+        timeout: 10
+    targets:
+      - target: agent-runtime.trialo.svc.cluster.local:8004
+        weight: 100
+
+  - name: marketplace-upstream
+    algorithm: round-robin
+    healthchecks:
+      active:
+        healthy:
+          interval: 30
+          successes: 1
+        unhealthy:
+          interval: 10
+          http_failures: 3
+        http_path: /health
+        timeout: 5
+    targets:
+      - target: marketplace.trialo.svc.cluster.local:8005
+        weight: 100
+
+  - name: notification-service-upstream
+    algorithm: round-robin
+    healthchecks:
+      active:
+        healthy:
+          interval: 30
+          successes: 1
+        unhealthy:
+          interval: 10
+          http_failures: 3
+        http_path: /health
+        timeout: 5
+    targets:
+      - target: notification-service.trialo.svc.cluster.local:8006
+        weight: 100
+
+  - name: graphql-api-upstream
+    algorithm: round-robin
+    healthchecks:
+      active:
+        healthy:
+          interval: 30
+          successes: 1
+        unhealthy:
+          interval: 10
+          http_failures: 3
+        http_path: /health
+        timeout: 5
+    targets:
+      - target: graphql-api.trialo.svc.cluster.local:4000
+        weight: 100
+
+  - name: frontend-upstream
+    algorithm: round-robin
+    healthchecks:
+      active:
+        healthy:
+          interval: 30
+          successes: 1
+        unhealthy:
+          interval: 10
+          http_failures: 3
+        http_path: /health
+        timeout: 5
+    targets:
+      - target: frontend.trialo.svc.cluster.local:3000
+        weight: 100
+
+  - name: data-platform-upstream
+    algorithm: least-connections
+    healthchecks:
+      active:
+        healthy:
+          interval: 30
+          successes: 1
+        unhealthy:
+          interval: 10
+          http_failures: 3
+        http_path: /health
+        timeout: 5
+    targets:
+      - target: data-platform.trialo.svc.cluster.local:8007
+        weight: 100
+
+##############################################################################
+# Services and Routes
+##############################################################################
+services:
+  ##
+  ## Auth Service
+  ##
+  - name: auth-service
+    host: auth-service-upstream
+    port: 8001
+    protocol: http
+    connect_timeout: 5000
+    write_timeout: 10000
+    read_timeout: 10000
+    retries: 3
+    routes:
+      - name: auth-routes
+        paths:
+          - /api/auth
+        strip_path: true
+        preserve_host: false
+        protocols:
+          - http
+          - https
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+    plugins:
+      # Rate limiting: stricter on auth endpoints
+      - name: rate-limiting
+        config:
+          minute: 60
+          policy: redis
+          redis_host: trialo-core-redis-master.trialo.svc.cluster.local
+          redis_port: 6379
+          fault_tolerant: true
+          hide_client_headers: false
+          error_code: 429
+          error_message: "API rate limit exceeded. Please retry after a moment."
+      # JWT validation on all auth routes except /jwks and /health
+      - name: jwt
+        config:
+          uri_param_names:
+            - jwt
+          cookie_names: []
+          header_names:
+            - authorization
+          claims_to_verify:
+            - exp
+            - nbf
+          key_claim_name: iss
+          run_on_preflight: false
+
+  ##
+  ## Audit Service
+  ##
+  - name: audit-service
+    host: audit-service-upstream
+    port: 8002
+    protocol: http
+    connect_timeout: 5000
+    write_timeout: 30000
+    read_timeout: 30000
+    retries: 2
+    routes:
+      - name: audit-routes
+        paths:
+          - /api/audit
+        strip_path: true
+        protocols:
+          - http
+          - https
+        methods:
+          - GET
+          - POST
+          - OPTIONS
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: redis
+          redis_host: trialo-core-redis-master.trialo.svc.cluster.local
+          redis_port: 6379
+          fault_tolerant: true
+      - name: jwt
+        config:
+          header_names:
+            - authorization
+          claims_to_verify:
+            - exp
+          run_on_preflight: false
+
+  ##
+  ## Ingestion Service
+  ##
+  - name: ingestion-service
+    host: ingestion-service-upstream
+    port: 8003
+    protocol: http
+    # Longer timeouts for file upload operations
+    connect_timeout: 10000
+    write_timeout: 300000
+    read_timeout: 300000
+    retries: 1
+    routes:
+      - name: ingestion-routes
+        paths:
+          - /api/ingest
+        strip_path: true
+        protocols:
+          - http
+          - https
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 30
+          policy: redis
+          redis_host: trialo-core-redis-master.trialo.svc.cluster.local
+          redis_port: 6379
+          fault_tolerant: true
+      - name: jwt
+        config:
+          header_names:
+            - authorization
+          claims_to_verify:
+            - exp
+          run_on_preflight: false
+      # Allow large file uploads
+      - name: request-size-limiting
+        config:
+          allowed_payload_size: 512
+          size_unit: megabytes
+
+  ##
+  ## Agent Runtime
+  ##
+  - name: agent-runtime
+    host: agent-runtime-upstream
+    port: 8004
+    protocol: http
+    connect_timeout: 10000
+    write_timeout: 600000
+    read_timeout: 600000
+    retries: 1
+    routes:
+      - name: agent-routes
+        paths:
+          - /api/agents
+        strip_path: true
+        protocols:
+          - http
+          - https
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 50
+          policy: redis
+          redis_host: trialo-core-redis-master.trialo.svc.cluster.local
+          redis_port: 6379
+          fault_tolerant: true
+      - name: jwt
+        config:
+          header_names:
+            - authorization
+          claims_to_verify:
+            - exp
+          run_on_preflight: false
+
+  ##
+  ## Marketplace
+  ##
+  - name: marketplace
+    host: marketplace-upstream
+    port: 8005
+    protocol: http
+    connect_timeout: 5000
+    write_timeout: 15000
+    read_timeout: 15000
+    retries: 3
+    routes:
+      - name: marketplace-routes
+        paths:
+          - /api/marketplace
+        strip_path: true
+        protocols:
+          - http
+          - https
+        methods:
+          - GET
+          - POST
+          - PUT
+          - DELETE
+          - OPTIONS
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: redis
+          redis_host: trialo-core-redis-master.trialo.svc.cluster.local
+          redis_port: 6379
+          fault_tolerant: true
+      - name: jwt
+        config:
+          header_names:
+            - authorization
+          claims_to_verify:
+            - exp
+          run_on_preflight: false
+
+  ##
+  ## Notification Service
+  ##
+  - name: notification-service
+    host: notification-service-upstream
+    port: 8006
+    protocol: http
+    connect_timeout: 5000
+    write_timeout: 15000
+    read_timeout: 15000
+    retries: 3
+    routes:
+      - name: notification-routes
+        paths:
+          - /api/notify
+        strip_path: true
+        protocols:
+          - http
+          - https
+        methods:
+          - GET
+          - POST
+          - DELETE
+          - OPTIONS
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 200
+          policy: redis
+          redis_host: trialo-core-redis-master.trialo.svc.cluster.local
+          redis_port: 6379
+          fault_tolerant: true
+      - name: jwt
+        config:
+          header_names:
+            - authorization
+          claims_to_verify:
+            - exp
+          run_on_preflight: false
+
+  ##
+  ## GraphQL API
+  ##
+  - name: graphql-api
+    host: graphql-api-upstream
+    port: 4000
+    protocol: http
+    connect_timeout: 5000
+    write_timeout: 60000
+    read_timeout: 60000
+    retries: 2
+    routes:
+      - name: graphql-routes
+        paths:
+          - /api/graphql
+        strip_path: true
+        protocols:
+          - http
+          - https
+        methods:
+          - GET
+          - POST
+          - OPTIONS
+      # WebSocket route for GraphQL subscriptions
+      - name: graphql-ws-routes
+        paths:
+          - /api/graphql/subscriptions
+        strip_path: true
+        protocols:
+          - ws
+          - wss
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 100
+          policy: redis
+          redis_host: trialo-core-redis-master.trialo.svc.cluster.local
+          redis_port: 6379
+          fault_tolerant: true
+      - name: jwt
+        config:
+          header_names:
+            - authorization
+          claims_to_verify:
+            - exp
+          run_on_preflight: false
+
+  ##
+  ## Data Platform
+  ##
+  - name: data-platform
+    host: data-platform-upstream
+    port: 8007
+    protocol: http
+    connect_timeout: 10000
+    write_timeout: 120000
+    read_timeout: 120000
+    retries: 2
+    routes:
+      - name: data-platform-routes
+        paths:
+          - /api/data
+        strip_path: true
+        protocols:
+          - http
+          - https
+        methods:
+          - GET
+          - POST
+          - PUT
+          - OPTIONS
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 60
+          policy: redis
+          redis_host: trialo-core-redis-master.trialo.svc.cluster.local
+          redis_port: 6379
+          fault_tolerant: true
+      - name: jwt
+        config:
+          header_names:
+            - authorization
+          claims_to_verify:
+            - exp
+          run_on_preflight: false
+
+  ##
+  ## Frontend (Next.js) — no JWT plugin, handles its own auth
+  ##
+  - name: frontend
+    host: frontend-upstream
+    port: 3000
+    protocol: http
+    connect_timeout: 5000
+    write_timeout: 30000
+    read_timeout: 30000
+    retries: 3
+    routes:
+      - name: frontend-routes
+        paths:
+          - /
+        strip_path: false
+        protocols:
+          - http
+          - https
+        # Allow all HTTP methods for Next.js SSR + API routes
+        methods:
+          - GET
+          - POST
+          - PUT
+          - PATCH
+          - DELETE
+          - HEAD
+          - OPTIONS
+      # Static assets — bypass JWT, high rate limit
+      - name: frontend-static-routes
+        paths:
+          - /_next/static
+          - /favicon.ico
+          - /robots.txt
+        strip_path: false
+        protocols:
+          - http
+          - https
+        methods:
+          - GET
+          - HEAD
+    plugins:
+      - name: rate-limiting
+        config:
+          minute: 300
+          policy: redis
+          redis_host: trialo-core-redis-master.trialo.svc.cluster.local
+          redis_port: 6379
+          fault_tolerant: true

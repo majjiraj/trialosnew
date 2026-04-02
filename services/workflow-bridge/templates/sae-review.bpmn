@@ -1,0 +1,209 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<bpmn:definitions xmlns:bpmn="http://www.omg.org/spec/BPMN/20100524/MODEL"
+                  xmlns:bpmndi="http://www.omg.org/spec/BPMN/20100524/DI"
+                  xmlns:dc="http://www.omg.org/spec/DD/20100524/DC"
+                  xmlns:di="http://www.omg.org/spec/DD/20100524/DI"
+                  xmlns:zeebe="http://camunda.org/schema/zeebe/1.0"
+                  xmlns:modeler="http://camunda.org/schema/modeler/1.0"
+                  id="Definitions_sae-review"
+                  targetNamespace="http://bpmn.io/schema/bpmn"
+                  exporter="Camunda Modeler"
+                  exporterVersion="5.0.0">
+
+  <bpmn:process id="sae-review" name="SAE Review Workflow" isExecutable="true">
+
+    <!-- Start Event -->
+    <bpmn:startEvent id="startEvent" name="SAE Received">
+      <bpmn:outgoing>flow_start_to_initial</bpmn:outgoing>
+    </bpmn:startEvent>
+
+    <!-- Task 1: Initial Report (User Task — site_crc or site_pi) -->
+    <bpmn:userTask id="task_initialReport" name="Complete Initial SAE Report">
+      <bpmn:extensionElements>
+        <zeebe:formDefinition formKey="form-sae-initial-report"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="assignee_role" value="site_crc|site_pi"/>
+          <zeebe:header key="sla_hours" value="4"/>
+        </zeebe:taskHeaders>
+        <zeebe:ioMapping>
+          <zeebe:output source="=subject_id" target="subject_id"/>
+          <zeebe:output source="=ae_term" target="ae_term"/>
+          <zeebe:output source="=severity" target="severity"/>
+          <zeebe:output source="=sae_criteria" target="sae_criteria"/>
+          <zeebe:output source="=narrative" target="narrative"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>flow_start_to_initial</bpmn:incoming>
+      <bpmn:outgoing>flow_initial_to_classify</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Task 2: AI Classification (Service Task) -->
+    <bpmn:serviceTask id="task_aiClassify" name="AI Severity Classification">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="trialo:agent-run" retries="2"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="agent_slug" value="sae-classifier"/>
+          <zeebe:header key="trigger_mode" value="always"/>
+          <zeebe:header key="timeout_seconds" value="120"/>
+          <zeebe:header key="output_mapping" value="{&quot;ai_severity_score&quot;:&quot;severity_score&quot;,&quot;ai_classification&quot;:&quot;classification&quot;}"/>
+        </zeebe:taskHeaders>
+        <zeebe:ioMapping>
+          <zeebe:input source="=subject_id" target="subject_id"/>
+          <zeebe:input source="=ae_term" target="ae_term"/>
+          <zeebe:input source="=severity" target="severity"/>
+          <zeebe:input source="=sae_criteria" target="sae_criteria"/>
+          <zeebe:input source="=narrative" target="narrative"/>
+          <zeebe:output source="=ai_severity_score" target="ai_severity_score"/>
+          <zeebe:output source="=ai_classification" target="ai_classification"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>flow_initial_to_classify</bpmn:incoming>
+      <bpmn:outgoing>flow_classify_to_gateway</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Gateway: Severity Routing -->
+    <bpmn:exclusiveGateway id="gateway_severity" name="Severity Level?" default="flow_standard">
+      <bpmn:incoming>flow_classify_to_gateway</bpmn:incoming>
+      <bpmn:outgoing>flow_critical</bpmn:outgoing>
+      <bpmn:outgoing>flow_standard</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Task 3a: Medical Review (User Task — medical_monitor, SLA 2h, requires e-sig) -->
+    <bpmn:userTask id="task_medicalReview" name="Medical Monitor Review">
+      <bpmn:extensionElements>
+        <zeebe:formDefinition formKey="form-sae-medical-review"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="assignee_role" value="medical_monitor"/>
+          <zeebe:header key="sla_hours" value="2"/>
+          <zeebe:header key="requires_esig" value="true"/>
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>flow_critical</bpmn:incoming>
+      <bpmn:outgoing>flow_medical_to_notify</bpmn:outgoing>
+      <!-- SLA escalation timer boundary event -->
+      <bpmn:boundaryEvent id="timer_medicalSla" cancelActivity="false" attachedToRef="task_medicalReview">
+        <bpmn:outgoing>flow_sla_escalate</bpmn:outgoing>
+        <bpmn:timerEventDefinition id="timer_def_medicalSla">
+          <bpmn:timeDuration xsi:type="bpmn:tFormalExpression" xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance">PT2H</bpmn:timeDuration>
+        </bpmn:timerEventDefinition>
+      </bpmn:boundaryEvent>
+    </bpmn:userTask>
+
+    <!-- Task 3a-escalate: SLA Escalation Notification -->
+    <bpmn:serviceTask id="task_slaEscalate" name="Send SLA Escalation Alert">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="trialo:send-notification" retries="3"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="notification_type" value="sla_breach"/>
+          <zeebe:header key="severity" value="critical"/>
+        </zeebe:taskHeaders>
+        <zeebe:ioMapping>
+          <zeebe:input source="=&quot;URGENT: SAE medical review SLA breached for &quot;+subject_id" target="title"/>
+          <zeebe:input source="=&quot;The SAE for subject &quot;+subject_id+&quot; requires immediate medical review — 2h SLA exceeded.&quot;" target="body"/>
+          <zeebe:input source="=org_id" target="org_id"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>flow_sla_escalate</bpmn:incoming>
+    </bpmn:serviceTask>
+
+    <!-- Task 3a-notify: Regulatory Notification -->
+    <bpmn:serviceTask id="task_regulatoryNotify" name="Send Regulatory Notification">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="trialo:send-notification" retries="3"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="notification_type" value="regulatory_notification"/>
+          <zeebe:header key="severity" value="high"/>
+        </zeebe:taskHeaders>
+        <zeebe:ioMapping>
+          <zeebe:input source="=&quot;SAE Regulatory Notification: &quot;+ae_term" target="title"/>
+          <zeebe:input source="=&quot;Life-threatening SAE reported for subject &quot;+subject_id+&quot;. AI severity score: &quot;+string(ai_severity_score)" target="body"/>
+          <zeebe:input source="=org_id" target="org_id"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>flow_medical_to_notify</bpmn:incoming>
+      <bpmn:outgoing>flow_notify_to_join</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Task 3b: Standard Review (User Task — cro_data_manager, SLA 24h) -->
+    <bpmn:userTask id="task_standardReview" name="Standard SAE Review">
+      <bpmn:extensionElements>
+        <zeebe:formDefinition formKey="form-sae-standard-review"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="assignee_role" value="cro_data_manager"/>
+          <zeebe:header key="sla_hours" value="24"/>
+        </zeebe:taskHeaders>
+      </bpmn:extensionElements>
+      <bpmn:incoming>flow_standard</bpmn:incoming>
+      <bpmn:outgoing>flow_standard_to_join</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- Join Gateway -->
+    <bpmn:exclusiveGateway id="gateway_join" name="Review Complete">
+      <bpmn:incoming>flow_notify_to_join</bpmn:incoming>
+      <bpmn:incoming>flow_standard_to_join</bpmn:incoming>
+      <bpmn:outgoing>flow_join_to_report</bpmn:outgoing>
+    </bpmn:exclusiveGateway>
+
+    <!-- Task 4: Generate Report (Service Task — AI) -->
+    <bpmn:serviceTask id="task_generateReport" name="Generate SAE Report">
+      <bpmn:extensionElements>
+        <zeebe:taskDefinition type="trialo:agent-run" retries="2"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="agent_slug" value="sae-report-generator"/>
+          <zeebe:header key="trigger_mode" value="always"/>
+          <zeebe:header key="timeout_seconds" value="180"/>
+        </zeebe:taskHeaders>
+        <zeebe:ioMapping>
+          <zeebe:input source="=subject_id" target="subject_id"/>
+          <zeebe:input source="=ae_term" target="ae_term"/>
+          <zeebe:input source="=severity" target="severity"/>
+          <zeebe:input source="=ai_classification" target="ai_classification"/>
+          <zeebe:input source="=narrative" target="narrative"/>
+          <zeebe:output source="=report_url" target="sae_report_url"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>flow_join_to_report</bpmn:incoming>
+      <bpmn:outgoing>flow_report_to_pisig</bpmn:outgoing>
+    </bpmn:serviceTask>
+
+    <!-- Task 5: PI Signature (User Task — site_pi, e-sig required, SLA 8h) -->
+    <bpmn:userTask id="task_piSignature" name="PI Electronic Signature">
+      <bpmn:extensionElements>
+        <zeebe:formDefinition formKey="form-sae-pi-signature"/>
+        <zeebe:taskHeaders>
+          <zeebe:header key="assignee_role" value="site_pi"/>
+          <zeebe:header key="sla_hours" value="8"/>
+          <zeebe:header key="requires_esig" value="true"/>
+        </zeebe:taskHeaders>
+        <zeebe:ioMapping>
+          <zeebe:output source="=esignature_id" target="pi_esignature_id"/>
+        </zeebe:ioMapping>
+      </bpmn:extensionElements>
+      <bpmn:incoming>flow_report_to_pisig</bpmn:incoming>
+      <bpmn:outgoing>flow_pisig_to_end</bpmn:outgoing>
+    </bpmn:userTask>
+
+    <!-- End Event -->
+    <bpmn:endEvent id="endEvent" name="SAE Review Complete">
+      <bpmn:incoming>flow_pisig_to_end</bpmn:incoming>
+    </bpmn:endEvent>
+
+    <!-- Sequence Flows -->
+    <bpmn:sequenceFlow id="flow_start_to_initial" sourceRef="startEvent" targetRef="task_initialReport"/>
+    <bpmn:sequenceFlow id="flow_initial_to_classify" sourceRef="task_initialReport" targetRef="task_aiClassify"/>
+    <bpmn:sequenceFlow id="flow_classify_to_gateway" sourceRef="task_aiClassify" targetRef="gateway_severity"/>
+    <bpmn:sequenceFlow id="flow_critical" name="Critical (score≥0.8)" sourceRef="gateway_severity" targetRef="task_medicalReview">
+      <bpmn:conditionExpression>=ai_severity_score >= 0.8 or severity = "life-threatening" or severity = "fatal"</bpmn:conditionExpression>
+    </bpmn:sequenceFlow>
+    <bpmn:sequenceFlow id="flow_standard" name="Standard" sourceRef="gateway_severity" targetRef="task_standardReview"/>
+    <bpmn:sequenceFlow id="flow_sla_escalate" sourceRef="timer_medicalSla" targetRef="task_slaEscalate"/>
+    <bpmn:sequenceFlow id="flow_medical_to_notify" sourceRef="task_medicalReview" targetRef="task_regulatoryNotify"/>
+    <bpmn:sequenceFlow id="flow_notify_to_join" sourceRef="task_regulatoryNotify" targetRef="gateway_join"/>
+    <bpmn:sequenceFlow id="flow_standard_to_join" sourceRef="task_standardReview" targetRef="gateway_join"/>
+    <bpmn:sequenceFlow id="flow_join_to_report" sourceRef="gateway_join" targetRef="task_generateReport"/>
+    <bpmn:sequenceFlow id="flow_report_to_pisig" sourceRef="task_generateReport" targetRef="task_piSignature"/>
+    <bpmn:sequenceFlow id="flow_pisig_to_end" sourceRef="task_piSignature" targetRef="endEvent"/>
+
+  </bpmn:process>
+
+</bpmn:definitions>

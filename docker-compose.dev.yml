@@ -1,0 +1,389 @@
+version: '3.9'
+
+services:
+  postgres:
+    image: pgvector/pgvector:pg16
+    environment:
+      POSTGRES_DB: trialo
+      POSTGRES_USER: trialo
+      POSTGRES_PASSWORD: trialo_dev
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./infrastructure/scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+
+  minio:
+    image: minio/minio:latest
+    command: server /data --console-address ":9001"
+    environment:
+      MINIO_ROOT_USER: trialo
+      MINIO_ROOT_PASSWORD: trialo_dev_secret
+    ports:
+      - "9000:9000"
+      - "9001:9001"
+    volumes:
+      - minio_data:/data
+
+  kafka:
+    image: confluentinc/cp-kafka:7.6.0
+    environment:
+      KAFKA_NODE_ID: 1
+      KAFKA_PROCESS_ROLES: broker,controller
+      KAFKA_LISTENERS: PLAINTEXT://0.0.0.0:9092,CONTROLLER://0.0.0.0:9093
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://localhost:9092
+      KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
+      KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_CLUSTER_ID: trialo-dev-cluster
+    ports:
+      - "9092:9092"
+
+  redis:
+    image: redis:7-alpine
+    ports:
+      - "6379:6379"
+
+  opa:
+    image: openpolicyagent/opa:latest
+    command: run --server --bundle /bundles
+    ports:
+      - "8181:8181"
+    volumes:
+      - ./packages/opa-policies:/bundles
+
+  auth-service:
+    build:
+      context: ./services
+      dockerfile: auth/Dockerfile
+    ports:
+      - "8001:8001"
+    environment:
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - AUTH0_DOMAIN=${AUTH0_DOMAIN}
+      - OPA_URL=http://opa:8181
+      - SECRET_KEY=${JWT_SECRET}
+    depends_on:
+      - postgres
+      - opa
+
+  audit-service:
+    build:
+      context: ./services
+      dockerfile: audit/Dockerfile
+    ports:
+      - "8002:8002"
+    environment:
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - KAFKA_BROKERS=kafka:9092
+    depends_on:
+      - postgres
+      - kafka
+
+  neo4j:
+    image: neo4j:5.20-community
+    ports:
+      - "7474:7474"
+      - "7687:7687"
+    environment:
+      - NEO4J_AUTH=neo4j/trialo_dev
+      - NEO4J_server_memory_heap_max__size=512m
+    volumes:
+      - neo4j_data:/data
+    healthcheck:
+      test: ["CMD-SHELL", "cypher-shell -u neo4j -p trialo_dev 'RETURN 1' || exit 1"]
+      interval: 10s
+      retries: 10
+      start_period: 30s
+
+  context-graph:
+    build:
+      context: ./services
+      dockerfile: context-graph/Dockerfile
+    ports:
+      - "8008:8008"
+    environment:
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=gemma:latest
+      - EMBEDDING_PROVIDER=ollama
+      - EMBEDDING_MODEL=nomic-embed-text
+      - EMBEDDING_DIM=768
+      - KAFKA_BROKERS=kafka:9092
+      - NEO4J_URL=bolt://neo4j:7687
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=trialo_dev
+    depends_on:
+      - postgres
+      - kafka
+      - neo4j
+
+  mongodb:
+    image: mongo:7
+    restart: unless-stopped
+    ports:
+      - "27017:27017"
+    environment:
+      MONGO_INITDB_ROOT_USERNAME: trialo
+      MONGO_INITDB_ROOT_PASSWORD: trialopass
+      MONGO_INITDB_DATABASE: trialo
+    volumes:
+      - mongo_data:/data/db
+
+  ingestion-service:
+    build:
+      context: ./services
+      dockerfile: ingestion/Dockerfile
+    ports:
+      - "8003:8003"
+    environment:
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=trialo
+      - S3_SECRET_KEY=trialo_dev_secret
+      - KAFKA_BROKERS=kafka:9092
+      - AUDIT_SERVICE_URL=http://audit-service:8002
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - EMBEDDING_PROVIDER=ollama
+      - EMBEDDING_MODEL=nomic-embed-text
+      - EMBEDDING_DIM=768
+      - CONTEXT_GRAPH_URL=http://context-graph:8008
+      - MONGO_URL=mongodb://trialo:trialopass@mongodb:27017/trialo?authSource=admin
+    depends_on:
+      - postgres
+      - minio
+      - kafka
+      - context-graph
+      - mongodb
+
+  agent-runtime:
+    build:
+      context: ./services
+      dockerfile: agent-runtime/Dockerfile
+    ports:
+      - "8004:8004"
+    environment:
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=gemma:latest
+      - EMBEDDING_PROVIDER=ollama
+      - EMBEDDING_MODEL=nomic-embed-text
+      - EMBEDDING_DIM=768
+      - KAFKA_BROKERS=kafka:9092
+      - AUDIT_SERVICE_URL=http://audit-service:8002
+      - S3_ENDPOINT=http://minio:9000
+      - S3_ACCESS_KEY=trialo
+      - S3_SECRET_KEY=trialo_dev_secret
+      - S3_BUCKET_ARTIFACTS=trialo-artifacts
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8006
+      - CONTEXT_GRAPH_URL=http://context-graph:8008
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
+      - AZURE_OPENAI_ENDPOINT=${AZURE_OPENAI_ENDPOINT:-}
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse:3000}
+    depends_on:
+      - postgres
+      - kafka
+      - context-graph
+
+  marketplace:
+    build:
+      context: ./services
+      dockerfile: marketplace/Dockerfile
+    ports:
+      - "8005:8005"
+    environment:
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=llama3.2:3b
+      - CONTEXT_GRAPH_URL=http://context-graph:8008
+    depends_on:
+      - postgres
+      - context-graph
+
+  notification-service:
+    build:
+      context: ./services
+      dockerfile: notifications/Dockerfile
+    ports:
+      - "8006:8006"
+    environment:
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - KAFKA_BROKERS=kafka:9092
+      - SENDGRID_API_KEY=${SENDGRID_API_KEY}
+    depends_on:
+      - kafka
+
+  graphql-api:
+    build: ./services/graphql-api
+    ports:
+      - "4000:4000"
+    environment:
+      - AUTH_SERVICE_URL=http://auth-service:8001
+      - AUDIT_SERVICE_URL=http://audit-service:8002
+      - INGESTION_SERVICE_URL=http://ingestion-service:8003
+      - AGENT_RUNTIME_URL=http://agent-runtime:8004
+      - MARKETPLACE_URL=http://marketplace:8005
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8006
+      - CONTEXT_GRAPH_URL=http://context-graph:8008
+      - APP_COMPOSER_URL=http://app-composer:8009
+      - FORM_ENGINE_URL=http://form-engine:8010
+      - WORKFLOW_BRIDGE_URL=http://workflow-bridge:8011
+      - JWT_SECRET=${JWT_SECRET}
+    depends_on:
+      - auth-service
+
+  langfuse:
+    image: langfuse/langfuse:2
+    ports:
+      - "3100:3000"
+    environment:
+      DATABASE_URL: postgresql://trialo:trialo_dev@postgres:5432/langfuse
+      NEXTAUTH_URL: http://localhost:3100
+      NEXTAUTH_SECRET: trialo-langfuse-secret
+      SALT: trialo-langfuse-salt
+      LANGFUSE_INIT_ORG_ID: trialo
+      LANGFUSE_INIT_PROJECT_ID: trialo-agents
+      LANGFUSE_INIT_PROJECT_PUBLIC_KEY: pk-lf-trialo
+      LANGFUSE_INIT_PROJECT_SECRET_KEY: sk-lf-trialo
+    depends_on:
+      - postgres
+
+  # ── ACP Infrastructure ─────────────────────────────────────────────────────
+
+  elasticsearch:
+    image: docker.elastic.co/elasticsearch/elasticsearch:8.13.0
+    environment:
+      - discovery.type=single-node
+      - xpack.security.enabled=false
+      - ES_JAVA_OPTS=-Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - es_data:/usr/share/elasticsearch/data
+
+  zeebe:
+    image: camunda/zeebe:8.5.0
+    environment:
+      - ZEEBE_BROKER_EXPORTERS_ELASTICSEARCH_CLASSNAME=io.camunda.zeebe.exporter.ElasticsearchExporter
+      - ZEEBE_BROKER_EXPORTERS_ELASTICSEARCH_ARGS_URL=http://elasticsearch:9200
+      - ZEEBE_BROKER_EXPORTERS_ELASTICSEARCH_ARGS_BULK_SIZE=1
+      - ZEEBE_BROKER_GATEWAY_SECURITY_AUTHENTICATION_MODE=none
+    ports:
+      - "26500:26500"
+      - "9600:9600"
+    volumes:
+      - zeebe_data:/usr/local/zeebe/data
+    depends_on:
+      - elasticsearch
+
+  operate:
+    image: camunda/operate:8.5.0
+    ports:
+      - "8080:8080"
+    environment:
+      - CAMUNDA_OPERATE_ZEEBE_GATEWAYADDRESS=zeebe:26500
+      - CAMUNDA_OPERATE_ELASTICSEARCH_URL=http://elasticsearch:9200
+      - CAMUNDA_OPERATE_ZEEBEELASTICSEARCH_URL=http://elasticsearch:9200
+    depends_on:
+      - zeebe
+      - elasticsearch
+
+  # ── ACP Application Services ───────────────────────────────────────────────
+
+  app-composer:
+    build:
+      context: ./services/app-composer
+      dockerfile: Dockerfile
+    ports:
+      - "8009:8009"
+    environment:
+      - NODE_ENV=development
+      - PORT=8009
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - MONGO_URL=mongodb://trialo:trialopass@mongodb:27017/trialo?authSource=admin
+      - KAFKA_BROKERS=kafka:9092
+      - JWT_SECRET=${JWT_SECRET}
+      - FIELD_ENCRYPTION_KEY=${FIELD_ENCRYPTION_KEY}
+      - AUTH_SERVICE_URL=http://auth-service:8001
+      - AUDIT_SERVICE_URL=http://audit-service:8002
+      - MARKETPLACE_URL=http://marketplace:8005
+      - AGENT_RUNTIME_URL=http://agent-runtime:8004
+      - WORKFLOW_BRIDGE_URL=http://workflow-bridge:8011
+    depends_on:
+      - postgres
+      - mongodb
+      - kafka
+      - auth-service
+
+  form-engine:
+    build:
+      context: ./services/form-engine
+      dockerfile: Dockerfile
+    ports:
+      - "8010:8010"
+    environment:
+      - NODE_ENV=development
+      - PORT=8010
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - MONGO_URL=mongodb://trialo:trialopass@mongodb:27017/trialo?authSource=admin
+      - KAFKA_BROKERS=kafka:9092
+      - JWT_SECRET=${JWT_SECRET}
+      - FIELD_ENCRYPTION_KEY=${FIELD_ENCRYPTION_KEY}
+      - AUTH_SERVICE_URL=http://auth-service:8001
+      - AUDIT_SERVICE_URL=http://audit-service:8002
+    depends_on:
+      - mongodb
+      - postgres
+      - kafka
+
+  workflow-bridge:
+    build:
+      context: ./services/workflow-bridge
+      dockerfile: Dockerfile
+    ports:
+      - "8011:8011"
+    environment:
+      - NODE_ENV=development
+      - PORT=8011
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - KAFKA_BROKERS=kafka:9092
+      - JWT_SECRET=${JWT_SECRET}
+      - ZEEBE_ADDRESS=zeebe:26500
+      - AGENT_RUNTIME_URL=http://agent-runtime:8004
+      - FORM_ENGINE_URL=http://form-engine:8010
+      - NOTIFICATION_SERVICE_URL=http://notification-service:8006
+      - AUDIT_SERVICE_URL=http://audit-service:8002
+    depends_on:
+      - zeebe
+      - postgres
+      - kafka
+      - agent-runtime
+      - form-engine
+
+  frontend:
+    build: ./frontend
+    ports:
+      - "3000:3000"
+    environment:
+      - NEXT_PUBLIC_GRAPHQL_URL=http://localhost:4000/graphql
+      - NEXT_PUBLIC_AUTH0_DOMAIN=${AUTH0_DOMAIN}
+      - NEXT_PUBLIC_AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID}
+      - NEXT_PUBLIC_AUTH_URL=http://localhost:8001
+      - NEXT_PUBLIC_MARKETPLACE_URL=http://localhost:8005
+      - NEXT_PUBLIC_APP_COMPOSER_URL=http://localhost:8009
+      - NEXT_PUBLIC_FORM_ENGINE_URL=http://localhost:8010
+      - NEXT_PUBLIC_WORKFLOW_BRIDGE_URL=http://localhost:8011
+    depends_on:
+      - graphql-api
+
+volumes:
+  postgres_data:
+  minio_data:
+  mongo_data:
+  zeebe_data:
+  es_data:
+  neo4j_data:

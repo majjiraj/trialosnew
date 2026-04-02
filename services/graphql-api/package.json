@@ -1,0 +1,20 @@
+{
+  "name": "trialo-graphql-api",
+  "version": "1.0.0",
+  "private": true,
+  "scripts": {
+    "start": "node index.js",
+    "dev": "node --watch index.js",
+    "test": "node --test tests/*.test.js"
+  },
+  "dependencies": {
+    "@apollo/server": "^4.10.5",
+    "@graphql-tools/schema": "^10.0.4",
+    "axios": "^1.7.2",
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "graphql": "^16.8.2",
+    "graphql-ws": "^5.16.0",
+    "ws": "^8.17.1"
+  }
+}

@@ -1,0 +1,28 @@
+apiVersion: kustomize.config.k8s.io/v1beta1
+kind: Kustomization
+
+metadata:
+  name: trialo-base
+
+namespace: trialo
+
+resources:
+  - namespace.yaml
+
+# Helm chart integration via kustomize helm chart inflator
+helmCharts:
+  - name: trialo-core
+    releaseName: trialo-core
+    namespace: trialo
+    version: 1.0.0
+    repo: https://github.com/your-org/trialo/infrastructure/helm/trialo-core
+    valuesFile: ../../helm/trialo-core/values.yaml
+
+# Common labels applied to all resources
+commonLabels:
+  app.kubernetes.io/part-of: trialo
+  managed-by: kustomize
+
+# Common annotations
+commonAnnotations:
+  trialo.io/platform-version: "1.0.0"

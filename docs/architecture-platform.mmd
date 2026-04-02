@@ -1,0 +1,89 @@
+architecture-beta
+    group client_edge(internet)[Client and Edge]
+    service browser(internet)[Study Teams and Ops Users] in client_edge
+    service frontend(server)[Next.js Frontend] in client_edge
+    service ingress(server)[Kong plus NGINX Ingress] in client_edge
+
+    group api_access(cloud)[API and Access]
+    service graphql(server)[GraphQL API Gateway] in api_access
+    service auth(server)[Auth Service] in api_access
+    service opa(server)[OPA Policy Engine] in api_access
+
+    group core_services(cloud)[Core Platform Services]
+    service audit(server)[Audit Service] in core_services
+    service ingestion(server)[Ingestion Service] in core_services
+    service agent_runtime(server)[Agent Runtime] in core_services
+    service marketplace(server)[Marketplace] in core_services
+    service notifications(server)[Notification Service] in core_services
+    service context_graph(server)[Context Graph] in core_services
+    service data_platform(server)[Data Platform] in core_services
+    service app_composer(server)[App Composer] in core_services
+    service form_engine(server)[Form Engine] in core_services
+    service workflow_bridge(server)[Workflow Bridge] in core_services
+
+    group data_storage(cloud)[Data and Storage]
+    service postgres(database)[PostgreSQL plus pgvector] in data_storage
+    service mongodb(database)[MongoDB] in data_storage
+    service minio(disk)[MinIO Object Storage] in data_storage
+
+    group eventing_workflow(cloud)[Eventing and Workflow]
+    service kafka(server)[Kafka Event Bus] in eventing_workflow
+    service zeebe(server)[Zeebe Workflow Engine] in eventing_workflow
+    service elastic(database)[Elasticsearch] in eventing_workflow
+    service langfuse(cloud)[Langfuse] in eventing_workflow
+
+    group external_services(cloud)[External Integrations]
+    service auth0(cloud)[Auth0] in external_services
+    service llm_stack(cloud)[OpenAI plus Anthropic plus Azure OpenAI plus Ollama] in external_services
+    service sendgrid(cloud)[SendGrid] in external_services
+
+    browser:R --> L:frontend
+    frontend:R --> L:ingress
+    ingress:R --> L:graphql
+
+    graphql:B --> T:auth
+    auth:R --> L:opa
+    auth:R --> L:auth0
+
+    graphql:B --> T:audit
+    graphql:B --> T:ingestion
+    graphql:B --> T:agent_runtime
+    graphql:B --> T:marketplace
+    graphql:B --> T:notifications
+    graphql:B --> T:context_graph
+    graphql:B --> T:data_platform
+    graphql:B --> T:app_composer
+    graphql:B --> T:form_engine
+    graphql:B --> T:workflow_bridge
+
+    audit:B --> T:postgres
+    ingestion:B --> T:postgres
+    agent_runtime:B --> T:postgres
+    marketplace:B --> T:postgres
+    notifications:B --> T:postgres
+    context_graph:B --> T:postgres
+    data_platform:B --> T:postgres
+    app_composer:B --> T:postgres
+    form_engine:B --> T:postgres
+    workflow_bridge:B --> T:postgres
+
+    ingestion:R --> L:mongodb
+    app_composer:R --> L:mongodb
+    form_engine:R --> L:mongodb
+
+    ingestion:R --> L:minio
+    agent_runtime:R --> L:minio
+
+    audit:B --> T:kafka
+    ingestion:B --> T:kafka
+    agent_runtime:B --> T:kafka
+    notifications:B --> T:kafka
+    context_graph:B --> T:kafka
+    workflow_bridge:B --> T:kafka
+
+    workflow_bridge:R --> L:zeebe
+    zeebe:R --> L:elastic
+    agent_runtime:R --> L:langfuse
+    agent_runtime:R --> L:llm_stack
+    context_graph:R --> L:llm_stack
+    notifications:R --> L:sendgrid

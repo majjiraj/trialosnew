@@ -1,0 +1,118 @@
+apiVersion: argoproj.io/v1alpha1
+kind: AppProject
+metadata:
+  name: trialo
+  namespace: argocd
+  labels:
+    app.kubernetes.io/name: trialo
+  # Protect project from accidental deletion
+  finalizers:
+    - resources-finalizer.argocd.argoproj.io
+spec:
+  description: "TrialOS clinical trials platform"
+
+  # Source repositories that can be used in this project
+  sourceRepos:
+    - https://github.com/your-org/trialo
+    - https://charts.bitnami.com/bitnami
+    - https://helm.releases.hashicorp.com
+    - https://charts.jetstack.io
+
+  # Destination clusters and namespaces
+  destinations:
+    - server: https://kubernetes.default.svc
+      namespace: trialo
+    - server: https://kubernetes.default.svc
+      namespace: trialo-staging
+    - server: https://kubernetes.default.svc
+      namespace: kafka          # Strimzi operator namespace
+    - server: https://kubernetes.default.svc
+      namespace: argocd         # Allow self-management of ArgoCD apps
+
+  # Cluster-scoped resource whitelist
+  clusterResourceWhitelist:
+    - group: ""
+      kind: Namespace
+    - group: kafka.strimzi.io
+      kind: Kafka
+    - group: kafka.strimzi.io
+      kind: KafkaTopic
+    - group: kafka.strimzi.io
+      kind: KafkaUser
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRole
+    - group: rbac.authorization.k8s.io
+      kind: ClusterRoleBinding
+
+  # Namespace-scoped resource whitelist (all standard Kubernetes resources)
+  namespaceResourceWhitelist:
+    - group: ""
+      kind: ConfigMap
+    - group: ""
+      kind: Secret
+    - group: ""
+      kind: Service
+    - group: ""
+      kind: ServiceAccount
+    - group: ""
+      kind: PersistentVolumeClaim
+    - group: apps
+      kind: Deployment
+    - group: apps
+      kind: StatefulSet
+    - group: apps
+      kind: DaemonSet
+    - group: autoscaling
+      kind: HorizontalPodAutoscaler
+    - group: networking.k8s.io
+      kind: Ingress
+    - group: networking.k8s.io
+      kind: NetworkPolicy
+    - group: policy
+      kind: PodDisruptionBudget
+    - group: batch
+      kind: Job
+    - group: batch
+      kind: CronJob
+
+  # Roles within this project
+  roles:
+    - name: platform-engineer
+      description: "Full read/write access to trialo project"
+      policies:
+        - p, proj:trialo:platform-engineer, applications, *, trialo/*, allow
+        - p, proj:trialo:platform-engineer, repositories, *, *, allow
+      groups:
+        - trialo-platform-team
+    - name: developer
+      description: "Read-only access plus ability to sync in staging"
+      policies:
+        - p, proj:trialo:developer, applications, get, trialo/*, allow
+        - p, proj:trialo:developer, applications, sync, trialo/trialo-staging, allow
+      groups:
+        - trialo-developers
+    - name: readonly
+      description: "Read-only access to view deployment status"
+      policies:
+        - p, proj:trialo:readonly, applications, get, trialo/*, allow
+      groups:
+        - trialo-stakeholders
+
+  # Sync windows: restrict production deployments to business hours
+  syncWindows:
+    - kind: allow
+      schedule: "0 8 * * 1-5"    # Mon-Fri 08:00 UTC
+      duration: 10h
+      applications:
+        - "trialo-core"
+      namespaces:
+        - trialo
+      manualSync: true
+    - kind: deny
+      schedule: "0 0 * * 6-0"    # Block weekends
+      duration: 48h
+      applications:
+        - "trialo-core"
+      namespaces:
+        - trialo
+      manualSync: false
