@@ -495,6 +495,83 @@ def _enforce_evidence_consistency(
     return evidence_assembly, confidence
 
 
+_VALIDATION_ESCALATION_BLOCKING_TYPES = {
+    "non_ig_sdtm_variable",
+    "non_ig_variable",
+}
+
+
+def _apply_validation_escalation_to_report(report: dict) -> dict:
+    """Escalate configured warning types to blocking errors in a validation report."""
+    out = dict(report or {})
+    issues = [dict(i) for i in (out.get("issues") or []) if isinstance(i, dict)]
+
+    escalated_count = 0
+    blocking_issues: list[dict] = []
+    for issue in issues:
+        issue_type = str(issue.get("type") or "").strip()
+        if issue_type in _VALIDATION_ESCALATION_BLOCKING_TYPES:
+            if issue.get("level") != "error":
+                issue["level"] = "error"
+                escalated_count += 1
+            blocking_issues.append(issue)
+
+    error_count = sum(1 for i in issues if i.get("level") == "error")
+    warning_count = sum(1 for i in issues if i.get("level") == "warning")
+
+    out["issues"] = issues
+    out["error_count"] = error_count
+    out["warning_count"] = warning_count
+    out["validation_passed"] = error_count == 0
+    out["blocking_issues"] = blocking_issues
+    out["escalation_policy"] = {
+        "policy_id": "validation_escalation_v1",
+        "blocking_issue_types": sorted(_VALIDATION_ESCALATION_BLOCKING_TYPES),
+        "escalated_warning_count": escalated_count,
+        "blocking_issue_count": len(blocking_issues),
+    }
+    return out
+
+
+def _apply_validation_escalation_to_layer(validation_layer: dict) -> dict:
+    """Apply escalation policy to generic validation_layer payloads across agents."""
+    layer = dict(validation_layer or {})
+    issues = [dict(i) for i in (layer.get("issues") or []) if isinstance(i, dict)]
+    escalated_count = 0
+
+    for issue in issues:
+        issue_type = str(issue.get("type") or "").strip()
+        if issue_type in _VALIDATION_ESCALATION_BLOCKING_TYPES and issue.get("level") != "error":
+            issue["level"] = "error"
+            escalated_count += 1
+
+    non_ig_check = layer.get("non_ig_variable_check")
+    non_ig_failed = isinstance(non_ig_check, dict) and not bool(non_ig_check.get("passed", True))
+    non_ig_issue_present = any((i.get("type") in _VALIDATION_ESCALATION_BLOCKING_TYPES) for i in issues)
+    blocking_triggered = non_ig_failed or non_ig_issue_present
+
+    error_count = int(layer.get("error_count", 0) or 0)
+    warning_count = int(layer.get("warning_count", 0) or 0)
+    if issues:
+        error_count = max(error_count, sum(1 for i in issues if i.get("level") == "error"))
+        warning_count = sum(1 for i in issues if i.get("level") == "warning")
+    if blocking_triggered:
+        error_count = max(error_count, 1)
+
+    layer["issues"] = issues
+    layer["error_count"] = error_count
+    layer["warning_count"] = warning_count
+    layer["validation_passed"] = error_count == 0
+    layer["outcome"] = "valid" if layer["validation_passed"] else "invalid"
+    layer["escalation_policy"] = {
+        "policy_id": "validation_escalation_v1",
+        "blocking_issue_types": sorted(_VALIDATION_ESCALATION_BLOCKING_TYPES),
+        "blocking_triggered": blocking_triggered,
+        "escalated_warning_count": escalated_count,
+    }
+    return layer
+
+
 async def _record_decision_trace(run_id: str, org_id: str, study_id: Optional[str],
                                   trace_type: str, input_ctx: dict,
                                   reasoning_steps: list, sources_cited: list,
@@ -688,6 +765,8 @@ async def _record_decision_trace(run_id: str, org_id: str, study_id: Optional[st
             "auto_generated":              True,
         }
 
+    validation_layer = _apply_validation_escalation_to_layer(validation_layer)
+
     # ── Confidence decomposition auto-default ─────────────────────────────────
     if not confidence_decomposition:
         _base = confidence
@@ -857,6 +936,17 @@ async def _pre_run_graph_and_trace(
             "declared_tools": declared_tools,
         },
     )
+    _intent_domains = _normalize_target_domains(
+        input_context.get("target_domains")
+        or input_context.get("domains")
+        or input_context.get("target_domain")
+    )
+    _mandatory_query_preview = [
+        {"domain": d, **q}
+        for d in _intent_domains
+        for q in _build_mandatory_domain_ig_queries(d, top_k=5)
+        if q.get("mandatory")
+    ]
     try:
         await _record_decision_trace(
             run_id=run_id,
@@ -888,6 +978,7 @@ async def _pre_run_graph_and_trace(
                 "inferred_intent":           f"{agent_purpose}_execution",
                 "inferred_task_class":       agent_type,
                 "intent_confidence":         _grounded_conf,
+                "target_domains":            _intent_domains,
                 "alternate_intents_considered": [],
             },
             # Gap 4 — retrieval reasoning: why we queried context graph
@@ -906,6 +997,9 @@ async def _pre_run_graph_and_trace(
                 "candidate_sources_considered": len(cg_nodes),
                 "selected_evidence_count": len(cg_nodes),
                 "retrieval_dimensions_selected": {"agent_type": agent_type},
+                "runtime_augmentation_applied": bool(_intent_domains),
+                "mandatory_retrieval_queries": _mandatory_query_preview,
+                "mandatory_query_count": len(_mandatory_query_preview),
             },
             evidence_assembly={
                 "evidence_type":              "context_graph_nodes",
@@ -1417,6 +1511,227 @@ TOOL_REGISTRY = {
     },
 }
 
+# Shared SDTM domain display names used by retrieval augmentation and traces.
+_SDTM_DOMAIN_DISPLAY_NAMES: dict[str, str] = {
+    "AE": "Adverse Events",
+    "CM": "Concomitant Medications",
+    "DM": "Demographics",
+    "DS": "Disposition",
+    "EG": "ECG Test Results",
+    "EX": "Exposure",
+    "LB": "Laboratory Test Results",
+    "MH": "Medical History",
+    "PR": "Procedures",
+    "VS": "Vital Signs",
+}
+
+
+def _normalize_target_domains(raw_domains: Any) -> list[str]:
+    """Normalize domain inputs to valid SDTM 2-letter domain codes."""
+    if raw_domains is None:
+        return []
+
+    if isinstance(raw_domains, str):
+        candidates = re.split(r"[,;\s/]+", raw_domains.strip())
+    elif isinstance(raw_domains, (list, tuple, set)):
+        candidates = []
+        for item in raw_domains:
+            if isinstance(item, str):
+                candidates.extend(re.split(r"[,;\s/]+", item.strip()))
+    else:
+        return []
+
+    valid_domains = set(_SDTM_DOMAIN_VARS.keys())
+    reverse_name_map = {
+        name.upper(): code for code, name in _SDTM_DOMAIN_DISPLAY_NAMES.items()
+    }
+
+    out: list[str] = []
+    seen: set[str] = set()
+    for token in candidates:
+        t = (token or "").strip()
+        if not t:
+            continue
+        t_upper = t.upper()
+        domain_code = t_upper
+        if domain_code not in valid_domains and t_upper in reverse_name_map:
+            domain_code = reverse_name_map[t_upper]
+        if domain_code in valid_domains and domain_code not in seen:
+            seen.add(domain_code)
+            out.append(domain_code)
+    return out
+
+
+def _extract_target_domains_for_retrieval(run_context: dict, tool_input: dict) -> list[str]:
+    """Infer target SDTM domains from run context/tool input for dynamic query augmentation."""
+    domain_candidates: list[str] = []
+    for src in (run_context or {}, tool_input or {}):
+        for key in ("target_domains", "domains", "target_domain", "domain"):
+            if key in src:
+                domain_candidates.extend(_normalize_target_domains(src.get(key)))
+
+    intent = run_context.get("intent_resolution") if isinstance(run_context, dict) else {}
+    if isinstance(intent, dict):
+        for key in ("target_domains", "domains", "target_domain"):
+            if key in intent:
+                domain_candidates.extend(_normalize_target_domains(intent.get(key)))
+
+    free_text = " ".join([
+        str(run_context.get("message") or ""),
+        str(run_context.get("query") or ""),
+        str(run_context.get("objective") or ""),
+        str(tool_input.get("query") or ""),
+    ])
+    if free_text:
+        domain_candidates.extend([
+            m.group(1).upper()
+            for m in re.finditer(r"\b([A-Za-z]{2})\b", free_text)
+            if m.group(1).upper() in _SDTM_DOMAIN_VARS
+        ])
+
+    deduped: list[str] = []
+    seen: set[str] = set()
+    for d in domain_candidates:
+        if d and d not in seen:
+            seen.add(d)
+            deduped.append(d)
+    return deduped
+
+
+def _build_mandatory_domain_ig_queries(domain: str, top_k: int = 5) -> list[dict]:
+    """Build mandatory domain-specific IG retrieval queries injected at runtime."""
+    d = domain.upper()
+    domain_full = _SDTM_DOMAIN_DISPLAY_NAMES.get(d, f"{d} domain")
+    req_vars = [
+        v["var"] for v in _SDTM_DOMAIN_VARS.get(d, [])
+        if v.get("core") in ("Req", "Exp")
+    ][:8]
+
+    queries = [
+        {
+            "query_type": "domain_chapter_exact",
+            "query": f"CDISC SDTM IG v3.4 {domain_full} ({d}) domain chapter dataset structure required expected variables",
+            "top_k": max(top_k, 5),
+            "mandatory": True,
+            "purpose": f"Force retrieval of the exact {d} domain chapter",
+        },
+        {
+            "query_type": "domain_variable_spec",
+            "query": f"{domain_full} domain {d} variable names SDTM dataset specification",
+            "top_k": max(top_k, 5),
+            "mandatory": False,
+            "purpose": f"Retrieve {d} variable definitions and dataset specification",
+        },
+        {
+            "query_type": "identifier_derivation",
+            "query": f"USUBJID STUDYID DOMAIN {d} identifier derivation rule",
+            "top_k": max(3, min(top_k, 5)),
+            "mandatory": False,
+            "purpose": "Retrieve derivation rules for STUDYID, USUBJID, DOMAIN identifiers",
+        },
+    ]
+
+    if req_vars:
+        queries.append({
+            "query_type": "domain_chapter_anchor",
+            "query": f"Section {domain_full} {' '.join(req_vars[:6])} label required expected CDISC SDTM IG",
+            "top_k": max(top_k, 5),
+            "mandatory": True,
+            "anchor_vars": req_vars[:6],
+            "purpose": f"Anchor {d} chapter retrieval using required/expected variable names",
+        })
+
+    return queries
+
+
+async def _search_implementation_guides_augmented(
+    inp: dict,
+    study_id: str,
+    org_id: str,
+    target_domains: list[str],
+) -> dict:
+    """Augment IG retrieval with mandatory domain-specific queries before execution."""
+    base_query = (inp.get("query") or "").strip()
+    guide_type = inp.get("guide_type", "all")
+    base_top_k = int(inp.get("top_k", 5) or 5)
+
+    query_plan: list[dict] = []
+    if base_query:
+        query_plan.append({
+            "domain": "",
+            "query_type": "base_query",
+            "query": base_query,
+            "top_k": base_top_k,
+            "mandatory": False,
+            "purpose": "User/LLM requested retrieval query",
+        })
+
+    for domain in target_domains:
+        for q in _build_mandatory_domain_ig_queries(domain, top_k=base_top_k):
+            query_plan.append({"domain": domain, **q})
+
+    dedup_plan: list[dict] = []
+    seen_plan_keys: set[tuple[str, str, str]] = set()
+    for q in query_plan:
+        key = (q.get("domain", ""), q.get("query_type", ""), q.get("query", ""))
+        if key in seen_plan_keys:
+            continue
+        seen_plan_keys.add(key)
+        dedup_plan.append(q)
+    query_plan = dedup_plan
+
+    tasks = [
+        _search_implementation_guides(
+            {
+                "query": q.get("query", ""),
+                "guide_type": guide_type,
+                "top_k": q.get("top_k", base_top_k),
+            },
+            study_id,
+            org_id,
+        )
+        for q in query_plan
+    ]
+    results = await asyncio.gather(*tasks, return_exceptions=True)
+
+    merged_results: list[dict] = []
+    for q, res in zip(query_plan, results):
+        if isinstance(res, Exception):
+            continue
+        for item in res.get("results", []):
+            merged_results.append({
+                **item,
+                "_query_type": q.get("query_type", ""),
+                "_fetched_for_domain": q.get("domain", ""),
+                "_mandatory_query": bool(q.get("mandatory", False)),
+                "_retrieval_query": q.get("query", ""),
+            })
+
+    deduped_results: list[dict] = []
+    seen_result_keys: set[tuple[str, str, str]] = set()
+    for r in sorted(merged_results, key=lambda x: float(x.get("score", 0.0)), reverse=True):
+        key = (
+            str(r.get("document", "")),
+            str(r.get("section", "")),
+            str(r.get("content", ""))[:160],
+        )
+        if key in seen_result_keys:
+            continue
+        seen_result_keys.add(key)
+        deduped_results.append(r)
+
+    return {
+        "query": base_query,
+        "guide_type": guide_type,
+        "results": deduped_results,
+        "result_count": len(deduped_results),
+        "query_count": len(query_plan),
+        "query_plan": query_plan,
+        "augmentation_applied": bool(target_domains),
+        "mandatory_queries_injected": sum(1 for q in query_plan if q.get("mandatory")),
+        "target_domains": target_domains,
+    }
+
 # ============================================================
 # TOOL EXECUTORS
 # ============================================================
@@ -1452,6 +1767,23 @@ async def execute_tool(tool_name: str, tool_input: dict, run_context: dict) -> A
         "query_sdtm_filtered":        _query_sdtm_filtered,
         "get_subjects_not_in_domain": _get_subjects_not_in_domain,
     }
+
+    if tool_name == "search_implementation_guides":
+        target_domains = _extract_target_domains_for_retrieval(run_context, tool_input)
+        if target_domains:
+            log.info(
+                "ig_search.dynamic_augmentation",
+                run_id=run_id,
+                target_domains=target_domains,
+                base_query=tool_input.get("query", ""),
+            )
+            return await _search_implementation_guides_augmented(
+                tool_input,
+                study_id,
+                org_id,
+                target_domains,
+            )
+
     fn = dispatch.get(tool_name)
     if fn:
         return await fn(tool_input, study_id, org_id)
@@ -5073,17 +5405,25 @@ def _validate_sdtm_mapping_spec(
             }
             if sdtm_var and known_vars and sdtm_var not in known_vars and sdtm_var not in _shared_sdtm_vars:
                 issues.append({
-                    "domain": domain, "level": "warning",
+                    "domain": domain, "level": "error",
                     "type": "non_ig_sdtm_variable",
                     "message": (
-                        f"{domain}: '{sdtm_var}' is not a standard SDTM {domain} variable — "
-                        f"verify against CDISC SDTM IG"
+                        f"{domain}: '{sdtm_var}' is not a standard SDTM {domain} variable "
+                        f"(mapping confidence={conf}%). Replace with an IG-defined variable before approval."
                     ),
                 })
 
             # Low-confidence mapping flag
             if conf < 60:
                 low_conf_vars.append(sdtm_var)
+                issues.append({
+                    "domain": domain, "level": "warning",
+                    "type": "low_confidence_mapping",
+                    "message": (
+                        f"{domain}: '{sdtm_var}' has low mapping confidence ({conf}%). "
+                        f"Manual reviewer confirmation required."
+                    ),
+                })
 
         # Missing required variables (not mapped AND not declared as missing)
         missing_required = required_vars - set(mapped_sdtm_vars.keys())
@@ -5997,11 +6337,7 @@ async def _upload_artifact_to_s3(content: bytes, key: str, content_type: str = "
 
 async def execute_sdtm_mapper_run(run_id: str, req: AgentRunRequest):
     """Full SDTM mapper pipeline (multi-domain) with HITL pause."""
-    _domain_names = {
-        "AE": "Adverse Events", "LB": "Laboratory Test Results", "VS": "Vital Signs",
-        "CM": "Concomitant/Prior Medications", "DM": "Demographics", "DS": "Disposition",
-        "EX": "Exposure", "MH": "Medical History", "EG": "ECG Test Results", "PR": "Procedures",
-    }
+    _domain_names = _SDTM_DOMAIN_DISPLAY_NAMES
     try:
         async with db_pool.acquire() as conn:
             await conn.execute(
@@ -6097,62 +6433,40 @@ async def execute_sdtm_mapper_run(run_id: str, req: AgentRunRequest):
 
         async def _fetch_ig_for_domain(domain: str):
             """Returns (results_list, queries_metadata_list) for the domain."""
-            domain_full = _domain_names.get(domain, domain)
+            domain_full = _domain_names.get(domain, f"{domain} domain")
             queries_meta = []
-
-            # Fetch 1: domain-level variable spec
-            q1 = f"{domain_full} domain {domain} variable names SDTM dataset specification"
-            r1 = await _search_implementation_guides({"query": q1, "top_k": 5}, study_id, req.org_id)
-            r1_results = [{**r, "_fetched_for_domain": domain, "_query_type": "domain_variable_spec"} for r in r1.get("results", [])]
-            queries_meta.append({
-                "domain": domain,
-                "query_type": "domain_variable_spec",
-                "query": q1,
-                "top_k": 5,
-                "results_returned": len(r1_results),
-                "purpose": f"Retrieve {domain_full} domain variable definitions and SDTM dataset specification",
-            })
-
-            # Fetch 2: identifier/key variable derivation rules
-            q2 = f"USUBJID STUDYID DOMAIN {domain} identifier derivation rule"
-            r2 = await _search_implementation_guides({"query": q2, "top_k": 3}, study_id, req.org_id)
-            r2_results = [{**r, "_fetched_for_domain": domain, "_query_type": "identifier_derivation"} for r in r2.get("results", [])]
-            queries_meta.append({
-                "domain": domain,
-                "query_type": "identifier_derivation",
-                "query": q2,
-                "top_k": 3,
-                "results_returned": len(r2_results),
-                "purpose": "Retrieve derivation rules for STUDYID, USUBJID, DOMAIN identifiers",
-            })
-
-            # Fetch 3: domain chapter — anchor on required/expected variable names
-            domain_req_vars = [v["var"] for v in _SDTM_DOMAIN_VARS.get(domain.upper(), [])
-                               if v.get("core") in ("Req", "Exp")][:6]
-            r3_results: list = []
-            if domain_req_vars:
-                q3 = f"Section {domain_full} {' '.join(domain_req_vars)} label required expected CDISC"
-                r3 = await _search_implementation_guides({"query": q3, "top_k": 5}, study_id, req.org_id)
-                r3_results = [{**r, "_fetched_for_domain": domain, "_query_type": "domain_chapter_anchor"} for r in r3.get("results", [])]
+            domain_results: list = []
+            for q in _build_mandatory_domain_ig_queries(domain, top_k=5):
+                query_text = q.get("query")
+                if not query_text:
+                    continue
+                r = await _search_implementation_guides(
+                    {"query": query_text, "top_k": q.get("top_k", 5)},
+                    study_id,
+                    req.org_id,
+                )
+                tagged_results = [
+                    {
+                        **row,
+                        "_fetched_for_domain": domain,
+                        "_query_type": q.get("query_type", "domain_variable_spec"),
+                        "_mandatory_query": bool(q.get("mandatory", False)),
+                    }
+                    for row in r.get("results", [])
+                ]
+                domain_results.extend(tagged_results)
                 queries_meta.append({
                     "domain": domain,
-                    "query_type": "domain_chapter_anchor",
-                    "query": q3,
-                    "top_k": 5,
-                    "results_returned": len(r3_results),
-                    "anchor_vars": domain_req_vars,
-                    "purpose": f"Retrieve {domain_full} domain-specific IG chapter using required variable names as anchors",
-                })
-            else:
-                queries_meta.append({
-                    "domain": domain,
-                    "query_type": "domain_chapter_anchor",
-                    "query": None,
-                    "results_returned": 0,
-                    "purpose": "Skipped — no required/expected vars found in built-in spec",
+                    "query_type": q.get("query_type", "domain_variable_spec"),
+                    "query": query_text,
+                    "top_k": q.get("top_k", 5),
+                    "mandatory": bool(q.get("mandatory", False)),
+                    "results_returned": len(tagged_results),
+                    "anchor_vars": q.get("anchor_vars", []),
+                    "purpose": q.get("purpose") or f"Retrieve {domain_full} domain-specific SDTM IG evidence",
                 })
 
-            return r1_results + r2_results + r3_results, queries_meta
+            return domain_results, queries_meta
 
         _ig_fetch_pairs = await asyncio.gather(*[_fetch_ig_for_domain(d) for d in target_domains])
         # _ig_fetch_pairs is list of (results, queries_meta) per domain
@@ -6406,6 +6720,7 @@ async def execute_sdtm_mapper_run(run_id: str, req: AgentRunRequest):
         # ── Run validation BEFORE recording the decision trace ────────────────
         # This allows the trace to include real validation results, not estimates
         _validation_report = _validate_sdtm_mapping_spec(domains_data, target_domains, file_data)
+        _validation_report = _apply_validation_escalation_to_report(_validation_report)
         _validation_passed = _validation_report["validation_passed"]
         _val_error_count   = _validation_report["error_count"]
         _val_warning_count = _validation_report["warning_count"]
@@ -6543,6 +6858,7 @@ async def execute_sdtm_mapper_run(run_id: str, req: AgentRunRequest):
 
             # Re-validate after fixes
             _validation_report = _validate_sdtm_mapping_spec(domains_data, target_domains, file_data)
+            _validation_report = _apply_validation_escalation_to_report(_validation_report)
             _validation_passed = _validation_report["validation_passed"]
             _val_error_count   = _validation_report["error_count"]
             _val_warning_count = _validation_report["warning_count"]
@@ -6881,14 +7197,19 @@ async def execute_sdtm_mapper_run(run_id: str, req: AgentRunRequest):
                     "action": "search_implementation_guides",
                     "status": "completed" if ig_count > 0 else "partial_failure",
                     "thought": (
-                        f"Issued {len(_retrieval_queries_meta)} queries (3 per domain) across {len(target_domains)} domain(s). "
+                        f"Issued {len(_retrieval_queries_meta)} queries using a dynamic mandatory domain-chapter plan "
+                        f"across {len(target_domains)} domain(s). "
                         f"Retrieved {_candidates_before_dedup} raw results, deduplicated to {ig_count} unique sections. "
                         + (f"Domains with generic-only IG: {_domains_generic_only}." if _domains_generic_only else "All domains retrieved domain-specific sections.")
                     ),
-                    "decision": f"3-query strategy per domain: (1) domain variable spec, (2) identifier derivation rules, (3) domain-chapter anchor via required var names. Deduplication applied.",
+                    "decision": (
+                        "Dynamic retrieval augmentation injected mandatory domain-chapter queries per domain "
+                        "(domain_chapter_exact/domain_chapter_anchor) in addition to supporting IG queries. "
+                        "Deduplication applied."
+                    ),
                     "inputs": {
                         "domains": target_domains,
-                        "queries_per_domain": 3,
+                        "queries_per_domain": round(len(_retrieval_queries_meta) / max(len(target_domains), 1), 2),
                         "retrieval_queries": _retrieval_queries_meta,
                     },
                     "outputs": {
@@ -7268,8 +7589,8 @@ async def execute_sdtm_mapper_run(run_id: str, req: AgentRunRequest):
                         "inputs": {
                             "domains": target_domains,
                             "queries_issued": len(_retrieval_queries_meta),
-                            "queries_per_domain": 3,
-                            "query_types": ["domain_variable_spec", "identifier_derivation", "domain_chapter_anchor"],
+                            "queries_per_domain": round(len(_retrieval_queries_meta) / max(len(target_domains), 1), 2),
+                            "query_types": sorted(list({q.get("query_type", "") for q in _retrieval_queries_meta if q.get("query_type")})),
                         },
                         "outputs": {
                             "ig_sections_retrieved": ig_count,
@@ -7852,6 +8173,39 @@ async def execute_sdtm_mapper_run(run_id: str, req: AgentRunRequest):
             },
         })
 
+        # Hard gate: do not enter HITL if escalated non-IG variable violations exist.
+        blocking_non_ig_issues = [
+            i for i in validation_report.get("issues", [])
+            if i.get("type") in _VALIDATION_ESCALATION_BLOCKING_TYPES
+        ]
+        if blocking_non_ig_issues:
+            gate_msg = (
+                f"Validation escalation blocked run before HITL: "
+                f"{len(blocking_non_ig_issues)} non-IG variable violation(s) detected."
+            )
+            await _append_step_trace(run_id, {
+                "step": 5,
+                "name": "Validation Escalation Gate",
+                "status": "failed",
+                "details": gate_msg,
+                "output_preview": {
+                    "blocking_issue_types": sorted(_VALIDATION_ESCALATION_BLOCKING_TYPES),
+                    "blocking_issues_preview": blocking_non_ig_issues[:5],
+                },
+            })
+            async with db_pool.acquire() as conn:
+                await conn.execute(
+                    "UPDATE agent_runs SET status='failed', completed_at=NOW(), error_message=$1 WHERE id=$2",
+                    gate_msg,
+                    run_id,
+                )
+            log.warning(
+                "sdtm_mapper.validation_escalation_blocked",
+                run_id=run_id,
+                blocking_issue_count=len(blocking_non_ig_issues),
+            )
+            return
+
         # Step 5 — Create approval request & pause
         # Build the final combined spec from the merged domains_data
         # Store full file objects (with s3_key) so the continuation step can download source data
@@ -7875,6 +8229,27 @@ async def execute_sdtm_mapper_run(run_id: str, req: AgentRunRequest):
                 f"  Issues: {validation_report['error_count']} error(s), "
                 f"{validation_report['warning_count']} warning(s) — see Validation tab"
             )
+
+        # Surface high-risk findings directly in the approval text so reviewers
+        # see them without opening the validation tab.
+        non_ig_issues = [
+            i for i in validation_report["issues"] if i.get("type") == "non_ig_sdtm_variable"
+        ]
+        low_conf_issues = [
+            i for i in validation_report["issues"] if i.get("type") == "low_confidence_mapping"
+        ]
+        if non_ig_issues:
+            val_summary_lines.append(
+                f"  BLOCKING: {len(non_ig_issues)} non-standard SDTM variable(s) detected."
+            )
+            for _issue in non_ig_issues[:5]:
+                val_summary_lines.append(f"    - {_issue.get('message', '')}")
+        if low_conf_issues:
+            val_summary_lines.append(
+                f"  REVIEW REQUIRED: {len(low_conf_issues)} low-confidence mapping(s) (<60%)."
+            )
+            for _issue in low_conf_issues[:5]:
+                val_summary_lines.append(f"    - {_issue.get('message', '')}")
         val_summary = "\n".join(val_summary_lines)
 
         async with db_pool.acquire() as conn:
@@ -7888,7 +8263,8 @@ async def execute_sdtm_mapper_run(run_id: str, req: AgentRunRequest):
                     f"({n_pre_mapped} auto-mapped by exact name match, "
                     f"{n_mappings_total - n_pre_mapped} by LLM).\n\n"
                     f"Self-validation summary:\n{val_summary}\n\n"
-                    f"Please review, correct if needed, and approve."
+                    f"Do not approve unchanged if BLOCKING or REVIEW REQUIRED findings are listed. "
+                    f"Correct impacted mappings first, then approve."
                 ),
                 combined_spec)
 
@@ -7946,7 +8322,13 @@ async def execute_sdtm_mapper_run(run_id: str, req: AgentRunRequest):
             org_id=req.org_id, study_id=study_id, user_id=created_by,
             notif_type="hitl_required",
             title=f"SDTM {domains_title} Mapping Ready for Review",
-            body=f"AI generated mappings for {len(target_domains)} domain(s). Please review and approve to continue.",
+            body=(
+                f"AI generated mappings for {len(target_domains)} domain(s). "
+                f"Validation found {validation_report['error_count']} error(s) and "
+                f"{validation_report['warning_count']} warning(s), including "
+                f"{len(non_ig_issues)} non-standard variable issue(s). "
+                f"Please review and correct before approval."
+            ),
             metadata={"run_id": run_id, "approval_id": approval_id, "domains": target_domains})
 
         log.info("sdtm_mapper.waiting", run_id=run_id, approval_id=approval_id, domains=target_domains)
