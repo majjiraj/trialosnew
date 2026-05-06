@@ -24,6 +24,7 @@ class AgentContext:
     telemetry: Any  # TelemetryClient — auto-emits audit/eval on run completion
     runtime_url: str = ""  # Agent-runtime base URL for callbacks
     is_test_run: bool = False
+    memory_context: list[dict] = field(default_factory=list)
     extra: dict = field(default_factory=dict)
 
 @dataclass

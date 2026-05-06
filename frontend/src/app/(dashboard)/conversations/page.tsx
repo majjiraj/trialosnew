@@ -65,6 +65,8 @@ interface WizardState {
 
 const GRAPHQL_URL = process.env.NEXT_PUBLIC_GRAPHQL_URL || 'http://localhost:4000/graphql'
 const INGESTION_URL = process.env.NEXT_PUBLIC_INGESTION_URL || 'http://localhost:8003'
+const CONTEXT_GRAPH_URL = process.env.NEXT_PUBLIC_CONTEXT_GRAPH_URL || 'http://localhost:8008'
+const RUNTIME_URL = process.env.NEXT_PUBLIC_AGENT_RUNTIME_URL || 'http://localhost:8004'
 const STUDY_ID = '00000000-0000-0000-0000-000000000003'
 const ACTIVE_STATUSES = new Set(['running', 'pending'])
 const LS_KEY = 'trialo_conversations'
@@ -191,6 +193,8 @@ function AgentPickerStep({
   onSelect: (inst: Installation) => void
   onNext: () => void
 }) {
+  const [search, setSearch] = useState('')
+
   if (installations.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-96 text-center px-6">
@@ -204,28 +208,57 @@ function AgentPickerStep({
     )
   }
 
-  return (
-    <div className="p-8">
-      <h2 className="text-2xl font-bold text-slate-700 mb-2">Select an Agent</h2>
-      <p className="text-sm text-slate-500 mb-6">Choose which agent you'd like to converse with.</p>
+  const filtered = installations.filter(inst =>
+    inst.agent.name.toLowerCase().includes(search.toLowerCase()) ||
+    inst.agent.agentType.toLowerCase().includes(search.toLowerCase()) ||
+    inst.agent.slug.toLowerCase().includes(search.toLowerCase())
+  )
 
-      <div className="grid grid-cols-2 gap-4 mb-6">
-        {installations.map(inst => (
-          <button
-            key={inst.id}
-            onClick={() => onSelect(inst)}
-            className={clsx(
-              'p-4 rounded-xl border-2 transition-colors text-left',
-              selected?.id === inst.id
-                ? 'border-brand-500 bg-brand-50'
-                : 'border-slate-200 hover:border-slate-300'
-            )}
-          >
-            <Bot className={clsx('w-6 h-6 mb-2', selected?.id === inst.id ? 'text-brand-500' : 'text-slate-400')} />
-            <div className="font-semibold text-slate-700 text-sm">{inst.agent.name}</div>
-            <div className="text-xs text-slate-500">{inst.agent.agentType}</div>
+  return (
+    <div className="p-6 flex flex-col min-h-0 flex-1">
+      <h2 className="text-2xl font-bold text-slate-700 mb-1">Select an Agent</h2>
+      <p className="text-sm text-slate-500 mb-4">Choose which agent you'd like to converse with.</p>
+
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-2.5 w-4 h-4 text-slate-400" />
+        <input
+          type="text"
+          placeholder="Search agents..."
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          className="w-full pl-9 pr-3 py-2 border border-slate-300 rounded-lg text-xs focus:outline-none focus:ring-2 focus:ring-brand-500"
+          autoFocus
+        />
+        {search && (
+          <button onClick={() => setSearch('')} className="absolute right-2 top-2 p-0.5 hover:bg-slate-100 rounded">
+            <X className="w-3.5 h-3.5 text-slate-400" />
           </button>
-        ))}
+        )}
+      </div>
+
+      <div className="flex-1 overflow-y-auto mb-4">
+        {filtered.length === 0 ? (
+          <p className="text-xs text-slate-400 text-center mt-8">No agents match &ldquo;{search}&rdquo;.</p>
+        ) : (
+          <div className="grid grid-cols-2 gap-3">
+            {filtered.map(inst => (
+              <button
+                key={inst.id}
+                onClick={() => onSelect(inst)}
+                className={clsx(
+                  'p-4 rounded-xl border-2 transition-colors text-left',
+                  selected?.id === inst.id
+                    ? 'border-brand-500 bg-brand-50'
+                    : 'border-slate-200 hover:border-slate-300'
+                )}
+              >
+                <Bot className={clsx('w-6 h-6 mb-2', selected?.id === inst.id ? 'text-brand-500' : 'text-slate-400')} />
+                <div className="font-semibold text-slate-700 text-sm">{inst.agent.name}</div>
+                <div className="text-xs text-slate-500">{inst.agent.agentType}</div>
+              </button>
+            ))}
+          </div>
+        )}
       </div>
 
       <button
@@ -275,6 +308,77 @@ function ContextSourceStep({
       >
         Back
       </button>
+    </div>
+  )
+}
+
+function FolderTreeItem({
+  folder,
+  selectedIds,
+  folderDocs,
+  expandedFolders,
+  onToggleFolder,
+  onToggleFolderExpand,
+}: {
+  folder: FolderNode
+  selectedIds: Set<string>
+  folderDocs: Map<string, string[]>
+  expandedFolders: Set<string>
+  onToggleFolder: (folderId: string) => void
+  onToggleFolderExpand: (folderId: string) => void
+}) {
+  const checkboxRef = useRef<HTMLInputElement>(null)
+  const docIds = folderDocs.get(folder.id) || []
+  const allSelected = docIds.length > 0 && docIds.every(id => selectedIds.has(id))
+  const someSelected = docIds.some(id => selectedIds.has(id))
+  const isExpanded = expandedFolders.has(folder.id)
+
+  useEffect(() => {
+    if (checkboxRef.current) {
+      checkboxRef.current.indeterminate = someSelected && !allSelected
+    }
+  }, [someSelected, allSelected])
+
+  return (
+    <div className="space-y-1">
+      <div className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-100 rounded">
+        {folder.children && folder.children.length > 0 ? (
+          <button onClick={() => onToggleFolderExpand(folder.id)} className="p-0.5">
+            {isExpanded ? (
+              <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
+            ) : (
+              <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
+            )}
+          </button>
+        ) : (
+          <div className="w-4" />
+        )}
+        <input
+          ref={checkboxRef}
+          type="checkbox"
+          checked={allSelected}
+          onChange={() => onToggleFolder(folder.id)}
+          className="w-4 h-4 rounded border-slate-300 text-brand-500 focus:ring-2 focus:ring-brand-500 cursor-pointer"
+        />
+        <Folder className="w-4 h-4 text-slate-500" />
+        <span className="flex-1 text-xs font-medium text-slate-700">{folder.name}</span>
+        <span className="text-xs text-slate-500">({folder.doc_count})</span>
+      </div>
+      {isExpanded && folder.children && folder.children.length > 0 && (
+        <div className="ml-4 space-y-1">
+          {folder.children.map(child => (
+            <FolderTreeItem
+              key={child.id}
+              folder={child}
+              selectedIds={selectedIds}
+              folderDocs={folderDocs}
+              expandedFolders={expandedFolders}
+              onToggleFolder={onToggleFolder}
+              onToggleFolderExpand={onToggleFolderExpand}
+            />
+          ))}
+        </div>
+      )}
     </div>
   )
 }
@@ -349,56 +453,6 @@ function FilePickerStep({
          d.document_type.toLowerCase().includes(search.toLowerCase())
   )
 
-  function FolderTreeItem({ folder }: { folder: FolderNode }) {
-    const checkboxRef = useRef<HTMLInputElement>(null)
-    const docIds = folderDocs.get(folder.id) || []
-    const allSelected = docIds.length > 0 && docIds.every(id => selectedIds.has(id))
-    const someSelected = docIds.some(id => selectedIds.has(id))
-    const isExpanded = expandedFolders.has(folder.id)
-
-    useEffect(() => {
-      if (checkboxRef.current) {
-        checkboxRef.current.indeterminate = someSelected && !allSelected
-      }
-    }, [someSelected, allSelected])
-
-    return (
-      <div key={folder.id} className="space-y-1">
-        <div className="flex items-center gap-2 px-2 py-1.5 hover:bg-slate-100 rounded">
-          {folder.children && folder.children.length > 0 && (
-            <button onClick={() => toggleFolderExpand(folder.id)} className="p-0.5">
-              {isExpanded ? (
-                <ChevronDown className="w-3.5 h-3.5 text-slate-500" />
-              ) : (
-                <ChevronRight className="w-3.5 h-3.5 text-slate-500" />
-              )}
-            </button>
-          )}
-          {(!folder.children || folder.children.length === 0) && <div className="w-4" />}
-
-          <input
-            ref={checkboxRef}
-            type="checkbox"
-            checked={allSelected}
-            onChange={() => toggleFolder(folder.id)}
-            className="w-4 h-4 rounded border-slate-300 text-brand-500 focus:ring-2 focus:ring-brand-500 cursor-pointer"
-          />
-          <Folder className="w-4 h-4 text-slate-500" />
-          <span className="flex-1 text-xs font-medium text-slate-700">{folder.name}</span>
-          <span className="text-xs text-slate-500">({folder.doc_count})</span>
-        </div>
-
-        {isExpanded && folder.children && folder.children.length > 0 && (
-          <div className="ml-4 space-y-1">
-            {folder.children.map(child => (
-              <FolderTreeItem key={child.id} folder={child} />
-            ))}
-          </div>
-        )}
-      </div>
-    )
-  }
-
   return (
     <div className="p-6 flex flex-col min-h-0 flex-1">
       <h2 className="text-2xl font-bold text-slate-700 mb-2">Select Files</h2>
@@ -467,7 +521,15 @@ function FilePickerStep({
               </div>
             ) : (
               folders.map(folder => (
-                <FolderTreeItem key={folder.id} folder={folder} />
+                <FolderTreeItem
+                  key={folder.id}
+                  folder={folder}
+                  selectedIds={selectedIds}
+                  folderDocs={folderDocs}
+                  expandedFolders={expandedFolders}
+                  onToggleFolder={toggleFolder}
+                  onToggleFolderExpand={toggleFolderExpand}
+                />
               ))
             )}
           </div>
@@ -537,13 +599,15 @@ function NewConversationWizard({
   }
 
   const handleDocumentToggle = (id: string) => {
-    const updated = new Set(selectedDocumentIds)
-    if (updated.has(id)) {
-      updated.delete(id)
-    } else {
-      updated.add(id)
-    }
-    setSelectedDocumentIds(updated)
+    setSelectedDocumentIds(prev => {
+      const updated = new Set(prev)
+      if (updated.has(id)) {
+        updated.delete(id)
+      } else {
+        updated.add(id)
+      }
+      return updated
+    })
   }
 
   return (
@@ -573,6 +637,85 @@ function NewConversationWizard({
           />
         )}
       </div>
+    </div>
+  )
+}
+
+interface SourceCitation {
+  doc_name?: string
+  section?: string
+  score?: number
+  excerpt?: string
+  chunk_id?: string
+}
+
+function MessageSources({ runId }: { runId: string }) {
+  const [sources, setSources] = useState<SourceCitation[]>([])
+  const [open, setOpen] = useState(false)
+  const [loaded, setLoaded] = useState(false)
+
+  const loadSources = async () => {
+    if (loaded) { setOpen(o => !o); return }
+    try {
+      // Try provenance manifest first (most complete)
+      const res = await fetch(`${RUNTIME_URL}/runs/${runId}/provenance-manifest`)
+      if (res.ok) {
+        const data = await res.json()
+        setSources(data.sources_cited || [])
+      }
+    } catch {
+      // Fallback: context-graph traces
+      try {
+        const res2 = await fetch(`${CONTEXT_GRAPH_URL}/traces/${runId}`)
+        if (res2.ok) {
+          const data2 = await res2.json()
+          const traces = data2.traces || [data2]
+          const srcs: SourceCitation[] = []
+          for (const t of traces) {
+            const cited = t.sources_cited || []
+            srcs.push(...(Array.isArray(cited) ? cited : []))
+          }
+          setSources(srcs.slice(0, 10))
+        }
+      } catch { /* silent */ }
+    }
+    setLoaded(true)
+    setOpen(true)
+  }
+
+  if (sources.length === 0 && loaded) return null
+
+  return (
+    <div className="mt-1">
+      <button
+        onClick={loadSources}
+        className="flex items-center gap-1 text-xs text-indigo-500 hover:text-indigo-700 transition-colors"
+      >
+        <FileText className="w-3 h-3" />
+        {loaded ? (open ? 'Hide sources' : `${sources.length} sources`) : 'Show sources'}
+        {open ? <ChevronDown className="w-3 h-3" /> : <ChevronRight className="w-3 h-3" />}
+      </button>
+      {open && sources.length > 0 && (
+        <div className="mt-1.5 space-y-1 border-l-2 border-indigo-100 pl-3">
+          {sources.slice(0, 6).map((s, i) => {
+            const score = typeof s.score === 'number' ? s.score : 0
+            const scoreColor = score >= 0.7 ? 'text-green-600' : score >= 0.4 ? 'text-amber-500' : 'text-gray-400'
+            return (
+              <div key={i} className="text-xs text-gray-600">
+                <span className="font-medium text-gray-700">{s.doc_name || 'Document'}</span>
+                {s.section && <span className="text-gray-400 ml-1">§ {s.section}</span>}
+                <span className={`ml-2 font-mono ${scoreColor}`}>{(score * 100).toFixed(0)}%</span>
+                {s.excerpt && (
+                  <p className="text-gray-500 mt-0.5 line-clamp-2">"{s.excerpt.slice(0, 100)}"</p>
+                )}
+              </div>
+            )
+          })}
+          {sources.length > 6 && (
+            <p className="text-xs text-gray-400">+{sources.length - 6} more sources</p>
+          )}
+        </div>
+      )}
     </div>
   )
 }
@@ -915,6 +1058,9 @@ function ChatInterface({
                   </ReactMarkdown>
                 )}
               </div>
+              {msg.role === 'assistant' && msg.runId && (
+                <MessageSources runId={msg.runId} />
+              )}
               {msg.role === 'assistant' && msg.runId && (
                 <MessageFeedback runId={msg.runId} orgId={orgId} userId={userId} />
               )}

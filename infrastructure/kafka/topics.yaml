@@ -85,3 +85,91 @@ spec:
     compression.type: "lz4"
     max.message.bytes: "524288"     # 512 KB
     min.insync.replicas: "2"
+
+---
+# Standards registry events (CT version updates, standard changes)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: trialo-events-standards
+  namespace: trialo
+  labels:
+    strimzi.io/cluster: trialo-kafka
+spec:
+  partitions: 3
+  replicas: 3
+  topicName: trialo.events.standards
+  config:
+    retention.ms: "2592000000"      # 30 days
+    retention.bytes: "536870912"    # 512 MB
+    segment.ms: "86400000"
+    cleanup.policy: "delete"
+    compression.type: "lz4"
+    max.message.bytes: "524288"
+    min.insync.replicas: "2"
+
+---
+# Memory engine events (decay, contradiction resolution, learning storage)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: trialo-events-memory
+  namespace: trialo
+  labels:
+    strimzi.io/cluster: trialo-kafka
+spec:
+  partitions: 6
+  replicas: 3
+  topicName: trialo.events.memory
+  config:
+    retention.ms: "2592000000"      # 30 days
+    retention.bytes: "1073741824"   # 1 GB
+    segment.ms: "86400000"
+    cleanup.policy: "delete"
+    compression.type: "lz4"
+    max.message.bytes: "1048576"    # 1 MB
+    min.insync.replicas: "2"
+
+---
+# Orchestration events (plan created, step completed, approval required)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: trialo-events-orchestration
+  namespace: trialo
+  labels:
+    strimzi.io/cluster: trialo-kafka
+spec:
+  partitions: 6
+  replicas: 3
+  topicName: trialo.events.orchestration
+  config:
+    retention.ms: "2592000000"      # 30 days
+    retention.bytes: "2147483648"   # 2 GB
+    segment.ms: "86400000"
+    cleanup.policy: "delete"
+    compression.type: "lz4"
+    max.message.bytes: "1048576"    # 1 MB
+    min.insync.replicas: "2"
+
+---
+# HITL events (review assigned, SLA breach, reviewer escalation)
+apiVersion: kafka.strimzi.io/v1beta2
+kind: KafkaTopic
+metadata:
+  name: trialo-events-hitl
+  namespace: trialo
+  labels:
+    strimzi.io/cluster: trialo-kafka
+spec:
+  partitions: 6
+  replicas: 3
+  topicName: trialo.events.hitl
+  config:
+    retention.ms: "2592000000"      # 30 days (regulatory audit requirement)
+    retention.bytes: "1073741824"   # 1 GB
+    segment.ms: "86400000"
+    cleanup.policy: "delete"
+    compression.type: "lz4"
+    max.message.bytes: "524288"     # 512 KB
+    min.insync.replicas: "2"

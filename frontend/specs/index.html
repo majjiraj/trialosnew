@@ -1,0 +1,2327 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>MaxisAI USDM Platform</title>
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&family=DM+Sans:opsz,wght@9..40,400;9..40,500;9..40,600&family=Fira+Code:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root {
+  --brand-primary:        #1A3680;
+  --brand-primary-hover:  #1E40AF;
+  --brand-primary-press:  #1D4ED8;
+  --brand-accent:         #0EA5E9;
+  --brand-accent-hover:   #0284C7;
+  --brand-accent-soft:    #E0F2FE;
+  --brand-ink:            #0C1B3A;
+  --brand-secondary:      #7C3AED;
+  --brand-secondary-soft: rgba(124,58,237,0.09);
+
+  --surface-canvas:  #F4F7FC;
+  --surface-base:    #FFFFFF;
+  --surface-sunken:  #EDF1F8;
+  --surface-overlay: rgba(12,27,58,0.55);
+
+  --border-subtle:   #DDE4F0;
+  --border-default:  #C2CEDF;
+  --border-focus:    #0EA5E9;
+
+  --text-primary:    #0C1B3A;
+  --text-secondary:  #2E4066;
+  --text-tertiary:   #6478A0;
+  --text-on-brand:   #FFFFFF;
+  --text-link:       #0284C7;
+
+  --success:         #059669;
+  --success-soft:    #ECFDF5;
+  --warning:         #D97706;
+  --warning-soft:    #FFFBEB;
+  --danger:          #DC2626;
+  --danger-soft:     #FEF2F2;
+  --info:            #2563EB;
+  --info-soft:       #EFF6FF;
+
+  --shadow-xs: 0 1px 2px rgba(12,27,58,0.05);
+  --shadow-sm: 0 2px 4px rgba(12,27,58,0.08),0 1px 2px rgba(12,27,58,0.04);
+  --shadow-md: 0 4px 12px -2px rgba(12,27,58,0.12),0 2px 4px -2px rgba(12,27,58,0.06);
+  --shadow-lg: 0 12px 28px -8px rgba(12,27,58,0.16),0 4px 8px -4px rgba(12,27,58,0.08);
+  --shadow-xl: 0 24px 56px -12px rgba(12,27,58,0.24);
+
+  --radius-xs: 4px; --radius-sm: 8px; --radius-md: 10px;
+  --radius-lg: 14px; --radius-xl: 20px; --radius-full: 9999px;
+
+  --font-display: 'Plus Jakarta Sans', -apple-system, sans-serif;
+  --font-body:    'DM Sans', -apple-system, sans-serif;
+  --font-mono:    'Fira Code', monospace;
+
+  --motion-fast: 120ms; --motion-base: 200ms; --motion-slow: 320ms;
+  --ease: cubic-bezier(0.2,0,0,1);
+}
+
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body{height:100%;overflow:hidden;}
+body{font-family:var(--font-body);background:var(--surface-canvas);color:var(--text-primary);font-size:14px;line-height:1.6;-webkit-font-smoothing:antialiased;letter-spacing:-0.01em;}
+
+.hidden{display:none!important;}
+.screen{height:100vh;overflow:hidden;}
+
+/* ─── LOGIN ─── */
+.login-wrap{display:grid;grid-template-columns:1fr 1fr;height:100vh;}
+
+.login-brand{
+  background:linear-gradient(145deg,#0C1B3A 0%,#1A3680 55%,#1D4ED8 100%);
+  display:flex;flex-direction:column;justify-content:space-between;
+  padding:52px;position:relative;overflow:hidden;
+}
+.login-brand::before{
+  content:'';position:absolute;inset:0;
+  background:radial-gradient(ellipse at 25% 65%,rgba(14,165,233,0.22) 0%,transparent 55%),
+             radial-gradient(ellipse at 80% 15%,rgba(124,58,237,0.15) 0%,transparent 50%);
+  pointer-events:none;
+}
+.login-brand::after{
+  content:'';position:absolute;bottom:-80px;right:-80px;
+  width:360px;height:360px;border-radius:50%;
+  border:1px solid rgba(14,165,233,0.12);
+  background:radial-gradient(circle,rgba(14,165,233,0.06) 0%,transparent 70%);
+  pointer-events:none;
+}
+.login-brand-logo{display:flex;align-items:center;gap:12px;}
+.login-brand-logomark svg{display:block;}
+.login-brand-hero{position:relative;z-index:1;}
+.login-brand-headline{
+  font-family:var(--font-display);font-size:46px;font-weight:800;
+  color:white;line-height:1.05;letter-spacing:-0.03em;margin-bottom:20px;
+}
+.login-brand-sub{
+  font-size:15px;color:rgba(255,255,255,0.65);line-height:1.6;max-width:380px;
+}
+.login-brand-badges{display:flex;gap:8px;flex-wrap:wrap;}
+.login-brand-badge{
+  font-family:var(--font-mono);font-size:10px;font-weight:600;
+  background:rgba(14,165,233,0.15);color:rgba(255,255,255,0.85);
+  padding:5px 12px;border-radius:var(--radius-full);border:1px solid rgba(14,165,233,0.30);
+  letter-spacing:0.03em;
+}
+.login-brand-footer{font-size:11px;color:rgba(255,255,255,0.35);position:relative;z-index:1;}
+
+.login-form-side{
+  display:flex;align-items:center;justify-content:center;
+  background:var(--surface-base);padding:48px;
+  background-image:radial-gradient(circle at 90% 10%,rgba(14,165,233,0.04) 0%,transparent 50%),
+                   radial-gradient(circle at 10% 90%,rgba(124,58,237,0.03) 0%,transparent 50%);
+}
+.login-card{width:100%;max-width:400px;}
+.login-card-title{font-family:var(--font-display);font-size:26px;font-weight:700;color:var(--text-primary);margin-bottom:6px;letter-spacing:-0.02em;}
+.login-card-sub{font-size:14px;color:var(--text-tertiary);margin-bottom:32px;line-height:1.6;}
+
+.form-group{margin-bottom:18px;}
+.form-label{display:block;font-size:13px;font-weight:500;color:var(--text-secondary);margin-bottom:6px;}
+.form-input{
+  display:block;width:100%;height:40px;padding:0 12px;
+  border:1px solid var(--border-default);border-radius:var(--radius-sm);
+  font-family:var(--font-body);font-size:14px;color:var(--text-primary);
+  background:var(--surface-base);outline:none;
+  transition:border-color var(--motion-fast) var(--ease);
+}
+.form-input:focus{border-color:var(--brand-accent);box-shadow:0 0 0 3px rgba(14,165,233,0.18);}
+.form-input-wrap{position:relative;}
+.form-input-wrap .form-input{padding-right:44px;}
+.eye-toggle{
+  position:absolute;right:12px;top:50%;transform:translateY(-50%);
+  background:none;border:none;cursor:pointer;color:var(--text-tertiary);padding:2px;
+}
+.form-row{display:flex;align-items:center;justify-content:space-between;margin-bottom:24px;}
+.form-check{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);}
+.form-link{font-size:13px;color:var(--text-link);text-decoration:none;font-weight:500;}
+.form-link:hover{text-decoration:underline;}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;
+  height:40px;padding:0 20px;border-radius:var(--radius-md);
+  font-family:var(--font-body);font-size:14px;font-weight:600;
+  border:none;cursor:pointer;text-decoration:none;
+  transition:background var(--motion-fast) var(--ease),box-shadow var(--motion-fast) var(--ease),transform var(--motion-fast) var(--ease);
+  white-space:nowrap;letter-spacing:-0.01em;
+}
+.btn-primary{
+  background:linear-gradient(135deg,#1A3680,#1D4ED8);
+  color:white;box-shadow:0 1px 3px rgba(29,78,216,0.4);
+}
+.btn-primary:hover{background:linear-gradient(135deg,#1E40AF,#2563EB);box-shadow:0 4px 12px rgba(29,78,216,0.3);transform:translateY(-1px);}
+.btn-secondary{background:transparent;color:var(--text-primary);border:1.5px solid var(--border-default);}
+.btn-secondary:hover{background:var(--surface-sunken);border-color:var(--border-focus);}
+.btn-accent{background:linear-gradient(135deg,#0284C7,#0EA5E9);color:white;box-shadow:0 1px 3px rgba(14,165,233,0.4);}
+.btn-accent:hover{background:linear-gradient(135deg,#0369A1,#0284C7);box-shadow:0 4px 12px rgba(14,165,233,0.3);transform:translateY(-1px);}
+.btn-full{width:100%;}
+.btn-sm{height:32px;padding:0 14px;font-size:13px;border-radius:var(--radius-sm);}
+.btn-lg{height:46px;padding:0 24px;font-size:15px;border-radius:var(--radius-md);}
+
+.login-divider{display:flex;align-items:center;gap:12px;margin:20px 0;font-size:12px;color:var(--text-tertiary);}
+.login-divider::before,.login-divider::after{content:'';flex:1;height:1px;background:var(--border-subtle);}
+
+.btn-sso{
+  display:flex;align-items:center;justify-content:center;gap:10px;
+  width:100%;height:40px;border:1px solid var(--border-default);
+  border-radius:var(--radius-sm);background:var(--surface-base);
+  color:var(--text-tertiary);font-size:14px;cursor:not-allowed;opacity:0.6;
+}
+.login-footer{text-align:center;font-size:12px;color:var(--text-tertiary);margin-top:32px;}
+
+.form-error{
+  background:var(--danger-soft);border:1px solid rgba(180,35,24,0.2);
+  border-radius:var(--radius-sm);padding:10px 14px;font-size:13px;color:var(--danger);
+  margin-bottom:16px;display:none;
+}
+.form-error.visible{display:block;}
+
+/* ─── APP SHELL ─── */
+.app{display:grid;grid-template-columns:240px 1fr;height:100vh;overflow:hidden;}
+
+/* ─── SIDEBAR ─── */
+.sidebar{
+  background:linear-gradient(180deg,#0C1B3A 0%,#102556 60%,#1A3680 100%);
+  color:var(--text-on-brand);
+  display:flex;flex-direction:column;overflow-y:auto;overflow-x:hidden;
+  scrollbar-width:none;border-right:1px solid rgba(255,255,255,0.06);
+}
+.sidebar::-webkit-scrollbar{display:none;}
+
+.sidebar-logo{
+  padding:20px 16px 18px;border-bottom:1px solid rgba(255,255,255,0.07);
+  margin-bottom:4px;
+}
+.sidebar-logo-inner{display:flex;align-items:center;gap:10px;}
+.sidebar-logomark{
+  width:36px;height:36px;border-radius:10px;
+  background:linear-gradient(135deg,rgba(14,165,233,0.25),rgba(124,58,237,0.2));
+  border:1px solid rgba(14,165,233,0.35);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;
+}
+.sidebar-wordmark{
+  font-family:var(--font-display);font-size:16px;font-weight:800;
+  letter-spacing:-0.03em;color:white;line-height:1;
+}
+.sidebar-wordmark span{color:#38BDF8;}
+
+.sidebar-section{padding:6px 0 10px;}
+.sidebar-section-title{
+  font-size:10px;font-weight:600;text-transform:uppercase;letter-spacing:0.12em;
+  color:rgba(255,255,255,0.28);padding:12px 16px 5px;
+  display:flex;align-items:center;gap:8px;
+}
+.sidebar-section-title::after{
+  content:'';flex:1;height:1px;background:rgba(255,255,255,0.07);
+}
+.sidebar-item{
+  display:flex;align-items:center;gap:10px;
+  padding:9px 12px 9px 16px;margin:1px 10px;
+  border-radius:var(--radius-md);font-size:13px;font-weight:500;
+  color:rgba(255,255,255,0.62);cursor:pointer;
+  transition:background var(--motion-fast) var(--ease),color var(--motion-fast) var(--ease);
+  position:relative;user-select:none;
+}
+.sidebar-item:hover{
+  background:rgba(255,255,255,0.07);
+  color:rgba(255,255,255,0.95);
+}
+.sidebar-item.active{
+  background:linear-gradient(90deg,rgba(14,165,233,0.22),rgba(14,165,233,0.08));
+  color:white;font-weight:600;
+  box-shadow:inset 0 0 0 1px rgba(14,165,233,0.25);
+}
+.sidebar-item.active::before{
+  content:'';position:absolute;left:0;top:50%;transform:translateY(-50%);
+  height:60%;width:3px;background:linear-gradient(180deg,#38BDF8,#0EA5E9);
+  border-radius:0 2px 2px 0;
+}
+.sidebar-icon{width:15px;height:15px;stroke:currentColor;stroke-width:1.75;fill:none;flex-shrink:0;opacity:0.85;}
+.sidebar-item.active .sidebar-icon{opacity:1;}
+.sidebar-badge{
+  margin-left:auto;background:rgba(14,165,233,0.85);color:white;
+  font-size:10px;font-weight:700;padding:2px 7px;border-radius:var(--radius-full);
+  font-family:var(--font-mono);min-width:20px;text-align:center;
+}
+.sidebar-footer{
+  margin-top:auto;padding:14px 16px;border-top:1px solid rgba(255,255,255,0.07);
+  font-size:11px;color:rgba(255,255,255,0.30);display:flex;justify-content:space-between;align-items:center;
+}
+.sidebar-env{
+  background:rgba(14,165,233,0.18);color:#38BDF8;
+  padding:2px 9px;border-radius:var(--radius-sm);font-family:var(--font-mono);font-size:10px;font-weight:700;
+  border:1px solid rgba(14,165,233,0.25);
+}
+
+/* ─── MAIN AREA ─── */
+.main{display:flex;flex-direction:column;min-width:0;height:100vh;overflow:hidden;}
+
+/* ─── TOP BAR ─── */
+.topbar{
+  height:58px;background:var(--surface-base);border-bottom:1px solid var(--border-subtle);
+  display:flex;align-items:center;padding:0 24px;gap:16px;flex-shrink:0;
+  z-index:100;box-shadow:var(--shadow-xs);
+}
+.breadcrumb{font-size:13px;color:var(--text-tertiary);display:flex;align-items:center;gap:6px;min-width:0;}
+.breadcrumb .current{color:var(--text-primary);font-weight:500;}
+.search-trigger{
+  flex:1;max-width:440px;height:34px;margin:0 auto;
+  background:var(--surface-sunken);border:1px solid var(--border-subtle);
+  border-radius:var(--radius-sm);display:flex;align-items:center;padding:0 12px;
+  gap:8px;color:var(--text-tertiary);font-size:13px;cursor:pointer;
+  transition:border-color var(--motion-fast) var(--ease);
+}
+.search-trigger:hover{border-color:var(--border-default);}
+.kbd{
+  margin-left:auto;font-family:var(--font-mono);font-size:10px;
+  background:var(--surface-base);border:1px solid var(--border-subtle);
+  border-radius:3px;padding:1px 5px;color:var(--text-tertiary);
+}
+.topbar-right{display:flex;align-items:center;gap:4px;}
+.icon-btn{
+  width:34px;height:34px;border-radius:var(--radius-sm);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  color:var(--text-secondary);position:relative;
+  transition:background var(--motion-fast) var(--ease);
+}
+.icon-btn:hover{background:var(--surface-sunken);}
+.notif-dot{
+  position:absolute;top:7px;right:7px;width:6px;height:6px;
+  background:var(--danger);border-radius:50%;border:1.5px solid var(--surface-base);
+}
+.avatar{
+  width:34px;height:34px;border-radius:50%;
+  background:linear-gradient(135deg,#1A3680,#0EA5E9);color:white;
+  display:flex;align-items:center;justify-content:center;
+  font-weight:700;font-size:12px;cursor:pointer;flex-shrink:0;margin-left:6px;
+  box-shadow:0 1px 4px rgba(14,165,233,0.3);
+}
+.role-tag{
+  font-size:10px;font-family:var(--font-mono);font-weight:700;
+  background:var(--brand-accent-soft);color:var(--brand-accent);
+  padding:3px 8px;border-radius:var(--radius-sm);border:1px solid rgba(14,165,233,0.2);
+}
+
+/* ─── DEMO BANNER ─── */
+.demo-banner{
+  background:linear-gradient(90deg,#FFFBEB,#FEFCE8);
+  border-bottom:1px solid #FDE68A;
+  padding:7px 24px;font-size:12px;color:#92400E;
+  display:flex;align-items:center;gap:8px;font-weight:500;flex-shrink:0;
+}
+.demo-banner strong{margin:0 3px;}
+.demo-reset{
+  margin-left:auto;font-size:11px;color:var(--warning);
+  font-weight:600;cursor:pointer;text-decoration:underline;
+}
+
+/* ─── PAGES ─── */
+.pages{flex:1;overflow:hidden;position:relative;}
+.page{position:absolute;inset:0;overflow-y:auto;display:none;}
+.page.active{display:block;}
+.content{padding:28px 32px;max-width:1400px;width:100%;}
+
+/* ─── PAGE HEADER ─── */
+.page-header{margin-bottom:28px;display:flex;justify-content:space-between;align-items:flex-end;}
+.page-title{font-family:var(--font-display);font-size:28px;font-weight:800;letter-spacing:-0.03em;color:var(--brand-ink);margin-bottom:5px;line-height:1.15;}
+.page-subtitle{color:var(--text-tertiary);font-size:13px;}
+.page-header-actions{display:flex;align-items:center;gap:8px;}
+
+/* ─── TILES ─── */
+.tile-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:16px;margin-bottom:20px;}
+.tile{
+  background:var(--surface-base);border:1px solid var(--border-subtle);
+  border-radius:var(--radius-lg);padding:20px 20px 16px;cursor:pointer;
+  transition:border-color var(--motion-fast),box-shadow var(--motion-base),transform var(--motion-base);
+}
+.tile:hover{border-color:var(--brand-accent);box-shadow:var(--shadow-md),0 0 0 3px rgba(14,165,233,0.08);transform:translateY(-2px);}
+.tile-label{
+  font-size:10px;text-transform:uppercase;letter-spacing:0.09em;
+  font-weight:700;display:flex;align-items:center;gap:6px;margin-bottom:14px;
+}
+.tile-icon{width:13px;height:13px;stroke:currentColor;stroke-width:2;fill:none;}
+.tile-metric{
+  font-family:var(--font-display);font-size:34px;font-weight:800;
+  letter-spacing:-0.03em;line-height:1;color:var(--brand-ink);margin-bottom:4px;
+}
+.tile-suffix{font-size:17px;color:var(--text-tertiary);font-weight:500;}
+.tile-support{font-size:12px;color:var(--text-secondary);margin-bottom:14px;display:flex;align-items:center;gap:8px;flex-wrap:wrap;}
+.delta{display:inline-flex;align-items:center;gap:2px;font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;font-family:var(--font-mono);}
+.delta-up{color:var(--success);background:var(--success-soft);}
+.delta-down{color:var(--success);background:var(--success-soft);}
+.delta-warn{color:var(--warning);background:var(--warning-soft);}
+.tile-spark{width:100%;height:26px;margin-bottom:10px;}
+.tile-drill{display:flex;align-items:center;gap:4px;font-size:12px;color:var(--text-link);font-weight:500;}
+
+.tile-accuracy .tile-label{color:var(--success);}
+.tile-reliability .tile-label{color:var(--info);}
+.tile-scalability .tile-label{color:var(--info);}
+.tile-compliance .tile-label{color:var(--brand-primary);}
+.tile-cost .tile-label{color:var(--success);}
+.tile-performance .tile-label{color:var(--brand-accent);}
+.tile-ux .tile-label{color:var(--brand-secondary);}
+.tile-integration .tile-label{color:var(--brand-accent);}
+
+/* ─── SPLIT PANELS ─── */
+.split-row{display:grid;grid-template-columns:1.5fr 1fr;gap:16px;}
+.panel{background:var(--surface-base);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden;transition:box-shadow var(--motion-base);}
+.panel:hover{box-shadow:var(--shadow-sm);}
+.panel-header{padding:14px 20px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;justify-content:space-between;background:var(--surface-base);}
+.panel-title{font-size:14px;font-weight:700;color:var(--text-primary);letter-spacing:-0.01em;}
+.panel-action{font-size:12px;color:var(--text-link);font-weight:600;cursor:pointer;}
+
+/* ─── ACTIVITY ─── */
+.activity-list{padding:4px 0;}
+.activity-row{
+  display:flex;align-items:flex-start;gap:12px;padding:10px 20px;
+  font-size:13px;cursor:pointer;transition:background var(--motion-fast);
+}
+.activity-row:hover{background:var(--surface-sunken);}
+.activity-icon{
+  width:28px;height:28px;border-radius:var(--radius-sm);
+  display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:12px;font-weight:700;
+}
+.ai-success{background:var(--success-soft);color:var(--success);}
+.ai-warning{background:var(--warning-soft);color:var(--warning);}
+.ai-info{background:var(--info-soft);color:var(--info);}
+.ai-danger{background:var(--danger-soft);color:var(--danger);}
+.ai-accent{background:var(--brand-accent-soft);color:var(--brand-accent);}
+.activity-content{flex:1;min-width:0;}
+.activity-title{font-weight:500;color:var(--text-primary);margin-bottom:2px;}
+.activity-meta{color:var(--text-tertiary);font-size:12px;display:flex;gap:8px;align-items:center;flex-wrap:wrap;}
+.study-id{font-family:var(--font-mono);background:var(--surface-sunken);padding:1px 6px;border-radius:3px;font-size:11px;color:var(--text-secondary);}
+.activity-time{color:var(--text-tertiary);font-size:11px;flex-shrink:0;margin-top:1px;}
+
+/* ─── LINEAGE MINI ─── */
+.lineage-mini-body{padding:14px 20px;}
+.lineage-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--border-subtle);font-size:13px;}
+.lineage-row:last-child{border-bottom:0;}
+.lineage-row-label{color:var(--text-secondary);}
+.lineage-row-val{font-family:var(--font-mono);font-size:12px;font-weight:600;color:var(--text-primary);}
+
+/* ─── BADGE / STATUS ─── */
+.badge{
+  display:inline-flex;align-items:center;gap:4px;
+  font-size:11px;font-weight:600;padding:2px 8px;border-radius:var(--radius-full);
+  font-family:var(--font-mono);
+}
+.badge-success{background:var(--success-soft);color:var(--success);}
+.badge-warning{background:var(--warning-soft);color:var(--warning);}
+.badge-danger{background:var(--danger-soft);color:var(--danger);}
+.badge-info{background:var(--info-soft);color:var(--info);}
+.badge-accent{background:var(--brand-accent-soft);color:var(--brand-accent);}
+.badge-neutral{background:var(--surface-sunken);color:var(--text-tertiary);}
+
+/* ─── TABLE ─── */
+.data-table{width:100%;border-collapse:collapse;font-size:13px;}
+.data-table th{
+  padding:10px 14px;text-align:left;font-size:11px;font-weight:700;
+  text-transform:uppercase;letter-spacing:0.06em;color:var(--text-tertiary);
+  background:var(--surface-sunken);border-bottom:1px solid var(--border-subtle);white-space:nowrap;
+}
+.data-table td{padding:12px 14px;border-bottom:1px solid var(--border-subtle);vertical-align:middle;}
+.data-table tr:last-child td{border-bottom:0;}
+.data-table tr:hover td{background:rgba(14,165,233,0.04);}
+.data-table tr{cursor:pointer;}
+.table-card{background:var(--surface-base);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);overflow:hidden;}
+.table-toolbar{padding:14px 20px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:12px;}
+.table-search{
+  height:34px;border:1px solid var(--border-subtle);border-radius:var(--radius-sm);
+  padding:0 12px;font-family:var(--font-body);font-size:13px;color:var(--text-primary);
+  background:var(--surface-sunken);outline:none;width:260px;
+}
+.table-search:focus{border-color:var(--brand-accent);}
+.table-actions{margin-left:auto;display:flex;gap:8px;}
+.mono{font-family:var(--font-mono);font-size:12px;}
+
+/* ─── WORKBENCH ─── */
+.workbench-wrap{display:flex;flex-direction:column;height:100%;overflow:hidden;}
+.workbench-panes{display:grid;grid-template-columns:38% 38% 24%;flex:1;overflow:hidden;border-top:1px solid var(--border-subtle);}
+.wb-pane{
+  border-right:1px solid var(--border-subtle);display:flex;flex-direction:column;overflow:hidden;
+}
+.wb-pane:last-child{border-right:0;}
+.wb-pane-header{
+  padding:12px 16px;border-bottom:1px solid var(--border-subtle);
+  background:var(--surface-sunken);flex-shrink:0;
+}
+.wb-pane-label{font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);}
+.wb-pane-title{font-size:14px;font-weight:600;color:var(--text-primary);margin-top:2px;}
+.wb-pane-body{flex:1;overflow-y:auto;padding:16px;}
+.workbench-bar{
+  height:64px;border-top:1px solid var(--border-subtle);
+  background:var(--surface-base);display:flex;align-items:center;padding:0 20px;gap:12px;flex-shrink:0;
+}
+.wb-progress{font-size:13px;color:var(--text-secondary);flex:1;}
+.wb-progress strong{color:var(--text-primary);}
+.wb-actions{display:flex;gap:8px;}
+
+/* ─── CODE / JSON ─── */
+.json-block{
+  background:var(--surface-sunken);border:1px solid var(--border-subtle);border-radius:var(--radius-sm);
+  padding:12px 14px;font-family:var(--font-mono);font-size:12px;line-height:1.6;
+  color:var(--text-secondary);overflow-x:auto;white-space:pre;
+}
+.json-key{color:var(--brand-accent);}
+.json-str{color:var(--success);}
+.json-num{color:var(--info);}
+
+/* ─── COLLAPSIBLE CARDS ─── */
+.collapse-card{border:1px solid var(--border-subtle);border-radius:var(--radius-sm);margin-bottom:8px;overflow:hidden;}
+.collapse-header{
+  display:flex;align-items:center;gap:8px;padding:10px 14px;
+  cursor:pointer;background:var(--surface-base);font-size:13px;font-weight:500;
+  color:var(--text-primary);user-select:none;
+}
+.collapse-header:hover{background:var(--surface-sunken);}
+.collapse-chevron{margin-left:auto;transition:transform var(--motion-fast);}
+.collapse-card.open .collapse-chevron{transform:rotate(180deg);}
+.collapse-body{padding:12px 14px;border-top:1px solid var(--border-subtle);display:none;}
+.collapse-card.open .collapse-body{display:block;}
+
+/* ─── CONFIDENCE ─── */
+.conf-bar{height:6px;border-radius:3px;background:var(--border-subtle);margin:6px 0;}
+.conf-fill{height:100%;border-radius:3px;}
+.conf-high .conf-fill{background:var(--success);}
+.conf-med .conf-fill{background:var(--warning);}
+.conf-low .conf-fill{background:var(--danger);}
+
+/* ─── LINEAGE EXPLORER ─── */
+.lineage-view-toggle{display:flex;gap:0;border:1px solid var(--border-default);border-radius:var(--radius-sm);overflow:hidden;width:fit-content;}
+.view-tab{
+  padding:7px 16px;font-size:13px;font-weight:500;cursor:pointer;
+  border-right:1px solid var(--border-default);background:var(--surface-base);color:var(--text-secondary);
+  transition:background var(--motion-fast),color var(--motion-fast);
+}
+.view-tab:last-child{border-right:0;}
+.view-tab.active{background:linear-gradient(135deg,#1A3680,#2563EB);color:white;}
+
+.lineage-timeline{padding:24px;}
+.lin-axis-label{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);margin-bottom:12px;}
+.lin-svg{width:100%;height:120px;margin-bottom:24px;}
+
+/* ─── QUALITY DASHBOARD ─── */
+.qd-tile{
+  background:var(--surface-base);border:1px solid var(--border-subtle);
+  border-radius:var(--radius-lg);padding:24px;
+}
+.qd-criterion{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);margin-bottom:8px;display:flex;align-items:center;gap:6px;}
+.qd-hero{font-family:var(--font-display);font-size:40px;font-weight:800;letter-spacing:-0.03em;color:var(--brand-ink);line-height:1;margin-bottom:6px;}
+.qd-sub{font-size:13px;color:var(--text-secondary);margin-bottom:16px;}
+.qd-breakdown{border-top:1px solid var(--border-subtle);padding-top:14px;display:flex;flex-direction:column;gap:8px;}
+.qd-row{display:flex;justify-content:space-between;align-items:center;font-size:13px;}
+.qd-row-label{color:var(--text-secondary);}
+.qd-row-val{font-weight:600;color:var(--text-primary);}
+.qd-bar-wrap{height:4px;background:var(--border-subtle);border-radius:2px;margin-top:4px;}
+.qd-bar-fill{height:100%;border-radius:2px;}
+
+/* ─── KNOWLEDGE GRAPH ─── */
+.kg-wrap{display:grid;grid-template-columns:220px 1fr;gap:0;height:100%;overflow:hidden;}
+.kg-filters{border-right:1px solid var(--border-subtle);overflow-y:auto;padding:16px;}
+.kg-canvas{background:var(--surface-sunken);display:flex;align-items:center;justify-content:center;overflow:hidden;position:relative;}
+.kg-filter-section{margin-bottom:16px;}
+.kg-filter-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);margin-bottom:8px;}
+.kg-filter-item{display:flex;align-items:center;gap:8px;font-size:13px;color:var(--text-secondary);margin-bottom:4px;cursor:pointer;}
+.kg-filter-item input[type=checkbox]{accent-color:var(--brand-accent);}
+.kg-stats{border-top:1px solid var(--border-subtle);padding-top:14px;margin-top:4px;}
+.kg-stat{display:flex;justify-content:space-between;font-size:12px;margin-bottom:6px;}
+.kg-stat-label{color:var(--text-tertiary);}
+.kg-stat-val{font-family:var(--font-mono);font-weight:700;color:var(--text-primary);}
+
+/* ─── PROV DRAWER / DETAILS ─── */
+.prov-row{display:flex;justify-content:space-between;align-items:flex-start;padding:8px 0;border-bottom:1px solid var(--border-subtle);font-size:13px;}
+.prov-row:last-child{border-bottom:0;}
+.prov-label{color:var(--text-tertiary);flex-shrink:0;min-width:120px;}
+.prov-val{color:var(--text-primary);font-weight:500;text-align:right;word-break:break-all;}
+.prov-val.mono{font-size:11px;}
+.source-span{
+  background:var(--surface-sunken);border:1px solid var(--border-subtle);
+  border-left:3px solid var(--brand-accent);border-radius:var(--radius-sm);
+  padding:12px 14px;font-size:12px;color:var(--text-secondary);line-height:1.8;
+  font-family:var(--font-mono);margin:10px 0;
+}
+
+/* ─── COMMAND PALETTE ─── */
+.cmd-overlay{
+  position:fixed;inset:0;background:var(--surface-overlay);z-index:1100;
+  display:flex;align-items:flex-start;justify-content:center;padding-top:12vh;
+}
+.cmd-modal{
+  background:var(--surface-base);border-radius:var(--radius-lg);
+  box-shadow:var(--shadow-xl);width:640px;max-width:calc(100vw - 32px);overflow:hidden;
+}
+.cmd-input-wrap{padding:16px;border-bottom:1px solid var(--border-subtle);display:flex;align-items:center;gap:10px;}
+.cmd-input{
+  flex:1;border:none;outline:none;font-family:var(--font-body);font-size:16px;
+  color:var(--text-primary);background:transparent;
+}
+.cmd-input::placeholder{color:var(--text-tertiary);}
+.cmd-results{max-height:400px;overflow-y:auto;}
+.cmd-section{padding:8px 0;}
+.cmd-section-title{font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);padding:6px 16px;}
+.cmd-item{
+  display:flex;align-items:center;gap:12px;padding:10px 16px;
+  cursor:pointer;transition:background var(--motion-fast);
+}
+.cmd-item:hover,.cmd-item.selected{background:linear-gradient(90deg,var(--brand-accent-soft),transparent);}
+.cmd-item-icon{width:32px;height:32px;border-radius:var(--radius-sm);background:var(--surface-sunken);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.cmd-item-label{font-size:14px;font-weight:500;color:var(--text-primary);}
+.cmd-item-meta{font-size:12px;color:var(--text-tertiary);}
+.cmd-item-kbd{margin-left:auto;font-family:var(--font-mono);font-size:11px;color:var(--text-tertiary);}
+.cmd-footer{padding:10px 16px;border-top:1px solid var(--border-subtle);font-size:11px;color:var(--text-tertiary);display:flex;gap:16px;}
+
+/* ─── NOTIFICATIONS ─── */
+.notif-panel{
+  position:fixed;top:56px;right:0;bottom:0;width:400px;
+  background:var(--surface-base);border-left:1px solid var(--border-subtle);
+  z-index:200;display:flex;flex-direction:column;
+  transform:translateX(100%);transition:transform var(--motion-base) var(--ease);
+}
+.notif-panel.open{transform:translateX(0);}
+.notif-header{padding:16px 20px;border-bottom:1px solid var(--border-subtle);}
+.notif-title{font-size:16px;font-weight:600;margin-bottom:12px;}
+.notif-tabs{display:flex;gap:0;border-bottom:0;}
+.notif-tab{
+  padding:6px 14px;font-size:13px;font-weight:500;cursor:pointer;
+  border-bottom:2px solid transparent;color:var(--text-tertiary);
+}
+.notif-tab.active{border-bottom-color:var(--brand-accent);color:var(--brand-accent);font-weight:600;}
+.notif-list{flex:1;overflow-y:auto;}
+.notif-item{display:flex;gap:12px;padding:14px 20px;border-bottom:1px solid var(--border-subtle);cursor:pointer;}
+.notif-item:hover{background:var(--surface-sunken);}
+.notif-item-icon{width:36px;height:36px;border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:14px;}
+.notif-item-body{flex:1;}
+.notif-item-title{font-size:13px;font-weight:600;color:var(--text-primary);margin-bottom:3px;}
+.notif-item-text{font-size:12px;color:var(--text-secondary);line-height:1.5;}
+.notif-item-time{font-size:11px;color:var(--text-tertiary);margin-top:4px;}
+.notif-item.unread .notif-item-title::before{content:'● ';color:var(--brand-accent);font-size:8px;vertical-align:middle;}
+
+/* ─── TOASTS ─── */
+#toast-stack{position:fixed;top:72px;right:24px;z-index:1200;display:flex;flex-direction:column;gap:8px;pointer-events:none;}
+.toast{
+  background:var(--surface-base);border:1px solid var(--border-subtle);
+  border-radius:var(--radius-md);padding:12px 16px;box-shadow:var(--shadow-lg);
+  font-size:13px;display:flex;align-items:flex-start;gap:10px;max-width:380px;
+  animation:toast-in 200ms var(--ease) forwards;pointer-events:all;
+}
+.toast-success{border-left:4px solid var(--success);}
+.toast-warning{border-left:4px solid var(--warning);}
+.toast-danger{border-left:4px solid var(--danger);}
+.toast-info{border-left:4px solid var(--info);}
+@keyframes toast-in{from{opacity:0;transform:translateX(12px);}to{opacity:1;transform:translateX(0);}}
+.toast-icon{width:20px;height:20px;border-radius:50%;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;flex-shrink:0;margin-top:1px;}
+.toast-title{font-weight:600;margin-bottom:2px;}
+.toast-body{color:var(--text-secondary);font-size:12px;line-height:1.5;}
+
+/* ─── PROTOCOL HIGHLIGHT ─── */
+.protocol-section{margin-bottom:20px;}
+.proto-h{font-size:14px;font-weight:700;color:var(--text-primary);margin-bottom:10px;padding-bottom:6px;border-bottom:1px solid var(--border-subtle);}
+.proto-p{font-size:13px;color:var(--text-secondary);line-height:1.7;margin-bottom:8px;}
+.proto-highlight{background:#FFF7ED;border-left:3px solid #F59E0B;padding:2px 6px;border-radius:3px;cursor:pointer;transition:background var(--motion-fast);}
+.proto-highlight:hover{background:#FEF3C7;}
+.proto-table{width:100%;border-collapse:collapse;font-size:12px;margin:12px 0;}
+.proto-table th{background:var(--surface-sunken);padding:7px 10px;text-align:left;font-weight:600;border:1px solid var(--border-subtle);}
+.proto-table td{padding:7px 10px;border:1px solid var(--border-subtle);color:var(--text-secondary);}
+
+/* ─── MISC ─── */
+.section-divider{height:1px;background:var(--border-subtle);margin:20px 0;}
+.text-mono{font-family:var(--font-mono);font-size:12px;}
+.text-meta{font-size:12px;color:var(--text-tertiary);}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:3px 10px;background:var(--surface-sunken);border:1px solid var(--border-subtle);border-radius:var(--radius-full);font-size:12px;font-weight:500;color:var(--text-secondary);}
+.iter-line{display:flex;align-items:center;gap:12px;padding:8px 0;font-size:12px;color:var(--text-secondary);}
+.iter-dot{width:8px;height:8px;border-radius:50%;background:var(--border-default);flex-shrink:0;}
+.iter-dot.done{background:var(--success);}
+.iter-dot.current{background:var(--warning);}
+.iter-arrow{color:var(--text-tertiary);}
+.val-row{display:flex;align-items:center;gap:8px;padding:6px 0;font-size:13px;border-bottom:1px solid var(--border-subtle);}
+.val-row:last-child{border-bottom:0;}
+.val-icon{font-size:14px;width:20px;text-align:center;}
+.val-name{flex:1;color:var(--text-secondary);}
+.val-result{font-weight:600;}
+.val-ok{color:var(--success);}
+.val-warn{color:var(--warning);}
+.val-pend{color:var(--text-tertiary);}
+
+/* ─── PROGRESS RING ─── */
+.ring-wrap{position:relative;width:80px;height:80px;}
+.ring-svg{width:80px;height:80px;transform:rotate(-90deg);}
+.ring-bg{fill:none;stroke:var(--border-subtle);stroke-width:6;}
+.ring-fill{fill:none;stroke-width:6;stroke-linecap:round;transition:stroke-dashoffset 600ms var(--ease);}
+.ring-label{position:absolute;inset:0;display:flex;align-items:center;justify-content:center;font-family:var(--font-display);font-size:18px;font-weight:800;color:var(--text-primary);}
+
+/* ─── RESPONSIVE / UTIL ─── */
+.flex-col{display:flex;flex-direction:column;gap:12px;}
+.flex-row{display:flex;align-items:center;gap:12px;}
+.text-right{text-align:right;}
+.mt-4{margin-top:16px;} .mb-4{margin-bottom:16px;}
+.mt-2{margin-top:8px;} .mb-2{margin-bottom:8px;}
+.fw-600{font-weight:600;} .fw-500{font-weight:500;}
+</style>
+</head>
+<body>
+
+<!-- ════════════════════════════════════════════
+     LOGIN SCREEN
+════════════════════════════════════════════ -->
+<div id="screen-login" class="screen">
+<div class="login-wrap">
+
+  <!-- Left: Brand panel -->
+  <div class="login-brand">
+    <div class="login-brand-logo">
+      <div class="sidebar-logomark" style="width:44px;height:44px;background:linear-gradient(135deg,rgba(14,165,233,0.25),rgba(124,58,237,0.18));border:1px solid rgba(14,165,233,0.40);border-radius:12px;display:flex;align-items:center;justify-content:center;">
+        <svg width="24" height="24" viewBox="0 0 22 22" fill="none">
+          <path d="M4 18L4 4L8 4L11 12L14 4L18 4L18 18L15 18L15 9L12 17L10 17L7 9L7 18Z" fill="#38BDF8"/>
+          <path d="M19 4L22 4L22 18L19 18Z" fill="white" opacity="0.8"/>
+        </svg>
+      </div>
+      <div style="font-family:var(--font-display);font-weight:800;font-size:20px;color:white;letter-spacing:-0.03em;">MAXIS<span style="color:#38BDF8;">AI</span></div>
+    </div>
+
+    <div class="login-brand-hero">
+      <div class="login-brand-headline">From Protocol<br>to Intelligence.</div>
+      <div class="login-brand-sub">AI-powered USDM generation platform · MaxisAI Digital Data Flow Challenge 2026<br><br>Field-level provenance · ICH M11 round-trip · Self-correcting agentic pipeline</div>
+    </div>
+
+    <div>
+      <div class="login-brand-badges" style="margin-bottom:16px;">
+        <span class="login-brand-badge">AWS Bedrock</span>
+        <span class="login-brand-badge">CDISC USDM v4.0</span>
+        <span class="login-brand-badge">ICH M11</span>
+        <span class="login-brand-badge">21 CFR Part 11</span>
+      </div>
+      <div class="login-brand-footer">© 2026 MaxisAI · Precision AI for Life Sciences R&D · v1.0.0</div>
+    </div>
+  </div>
+
+  <!-- Right: Form -->
+  <div class="login-form-side">
+    <div class="login-card">
+      <div class="login-card-title">Welcome back</div>
+      <div class="login-card-sub">Sign in with your MaxisAI credentials · <strong>Demo:</strong> password is <code style="font-family:var(--font-mono);background:var(--surface-sunken);padding:2px 6px;border-radius:4px;font-size:12px;">demo</code></div>
+
+      <div id="login-error" class="form-error">Invalid credentials. Try any @maxisai.com or @maxisit.com email with password "demo".</div>
+
+      <div class="form-group">
+        <label class="form-label">Email address</label>
+        <input id="login-email" class="form-input" type="email" placeholder="you@maxisai.com" value="arun.goel@maxisai.com">
+      </div>
+      <div class="form-group">
+        <label class="form-label">Password</label>
+        <div class="form-input-wrap">
+          <input id="login-password" class="form-input" type="password" placeholder="••••••••" value="demo">
+          <button class="eye-toggle" onclick="togglePw()">
+            <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M1 12s4-8 11-8 11 8 11 8-4 8-11 8-11-8-11-8z"/><circle cx="12" cy="12" r="3"/></svg>
+          </button>
+        </div>
+      </div>
+      <div class="form-row">
+        <label class="form-check"><input type="checkbox" checked> Remember me</label>
+        <a href="#" class="form-link">Forgot password?</a>
+      </div>
+      <button class="btn btn-primary btn-full btn-lg" onclick="doLogin()">Sign in</button>
+      <div class="login-divider">or</div>
+      <button class="btn-sso" title="Available after Challenge">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>
+        Continue with SSO — available after Challenge
+      </button>
+      <div class="login-footer">© 2026 MaxisAI · <a class="form-link" href="#">Privacy</a> · <a class="form-link" href="#">Terms</a></div>
+    </div>
+  </div>
+</div>
+</div><!-- /login -->
+
+
+<!-- ════════════════════════════════════════════
+     APP SHELL
+════════════════════════════════════════════ -->
+<div id="screen-app" class="screen hidden">
+<div class="app">
+
+  <!-- SIDEBAR -->
+  <aside class="sidebar">
+    <div class="sidebar-logo">
+      <div class="sidebar-logo-inner">
+        <div class="sidebar-logomark">
+          <svg width="20" height="20" viewBox="0 0 22 22" fill="none">
+            <path d="M4 18L4 4L8 4L11 12L14 4L18 4L18 18L15 18L15 9L12 17L10 17L7 9L7 18Z" fill="#38BDF8"/>
+            <path d="M19 4L22 4L22 18L19 18Z" fill="rgba(255,255,255,0.75)"/>
+          </svg>
+        </div>
+        <div class="sidebar-wordmark">MAXIS<span>AI</span></div>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Workspace</div>
+      <div class="sidebar-item active" onclick="nav('dashboard',this)">
+        <svg class="sidebar-icon" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/><rect x="14" y="12" width="7" height="9"/><rect x="3" y="16" width="7" height="5"/></svg>
+        Dashboard
+      </div>
+      <div class="sidebar-item" onclick="nav('conversions',this)">
+        <svg class="sidebar-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/></svg>
+        Conversions
+      </div>
+      <div class="sidebar-item" onclick="nav('workbench',this)">
+        <svg class="sidebar-icon" viewBox="0 0 24 24"><polyline points="9 11 12 14 22 4"/><path d="M21 12v7a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11"/></svg>
+        Review Queue <span class="sidebar-badge">12</span>
+      </div>
+      <div class="sidebar-item" onclick="nav('adjudications',this)">
+        <svg class="sidebar-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        Adjudications <span class="sidebar-badge">3</span>
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Traceability</div>
+      <div class="sidebar-item" onclick="nav('lineage',this)">
+        <svg class="sidebar-icon" viewBox="0 0 24 24"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/><line x1="6" y1="9" x2="12" y2="15"/><line x1="18" y1="9" x2="12" y2="15"/></svg>
+        Lineage
+      </div>
+      <div class="sidebar-item" onclick="nav('provenance',this)">
+        <svg class="sidebar-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+        Provenance
+      </div>
+      <div class="sidebar-item" onclick="nav('knowledge',this)">
+        <svg class="sidebar-icon" viewBox="0 0 24 24"><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="5" cy="19" r="2"/><circle cx="19" cy="19" r="2"/><circle cx="12" cy="12" r="2"/><line x1="6.5" y1="6.5" x2="10.5" y2="10.5"/><line x1="17.5" y1="6.5" x2="13.5" y2="10.5"/><line x1="6.5" y1="17.5" x2="10.5" y2="13.5"/><line x1="17.5" y1="17.5" x2="13.5" y2="13.5"/></svg>
+        Knowledge Graph
+      </div>
+      <div class="sidebar-item" onclick="nav('audit',this)">
+        <svg class="sidebar-icon" viewBox="0 0 24 24"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><line x1="9" y1="13" x2="15" y2="13"/><line x1="9" y1="17" x2="15" y2="17"/></svg>
+        Audit Trail
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Output</div>
+      <div class="sidebar-item" onclick="nav('docstudio',this)">
+        <svg class="sidebar-icon" viewBox="0 0 24 24"><rect x="3" y="3" width="18" height="18" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="21" x2="9" y2="9"/></svg>
+        Doc Studio
+      </div>
+      <div class="sidebar-item" onclick="nav('integrations',this)">
+        <svg class="sidebar-icon" viewBox="0 0 24 24"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>
+        Integrations
+      </div>
+    </div>
+
+    <div class="sidebar-section">
+      <div class="sidebar-section-title">Analytics</div>
+      <div class="sidebar-item" onclick="nav('quality',this)">
+        <svg class="sidebar-icon" viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>
+        Quality Dashboard
+      </div>
+      <div class="sidebar-item" onclick="nav('models',this)">
+        <svg class="sidebar-icon" viewBox="0 0 24 24"><circle cx="12" cy="12" r="10"/><path d="M12 6v6l4 2"/></svg>
+        Models &amp; Skills
+      </div>
+    </div>
+
+    <div class="sidebar-footer">
+      <span class="sidebar-env">DEMO</span>
+      <span>v1.0.0</span>
+    </div>
+  </aside>
+
+  <!-- MAIN -->
+  <div class="main">
+    <!-- TOP BAR -->
+    <div class="topbar">
+      <div class="breadcrumb">
+        <span>MaxisAI</span><span>›</span>
+        <span id="topbar-page" class="current">Dashboard</span>
+      </div>
+      <div class="search-trigger" onclick="openCmd()">
+        <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+        Search studies, fields, actions…
+        <span class="kbd">⌘K</span>
+      </div>
+      <div class="topbar-right">
+        <div class="icon-btn" title="Notifications" onclick="toggleNotif()">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M18 8A6 6 0 0 0 6 8c0 7-3 9-3 9h18s-3-2-3-9"/><path d="M13.73 21a2 2 0 0 1-3.46 0"/></svg>
+          <span class="notif-dot"></span>
+        </div>
+        <div class="icon-btn" title="Toggle theme" onclick="toggleTheme()">
+          <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </div>
+        <div class="avatar" title="Arun Goel · MaxisAI Super Admin">AG</div>
+        <span class="role-tag">SA</span>
+      </div>
+    </div>
+
+    <!-- DEMO BANNER -->
+    <div class="demo-banner">
+      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+      Demo environment · viewing as <strong>Arun Goel</strong> (MaxisAI Super Admin) · all data is mock
+      <span class="demo-reset" onclick="showToast('info','Demo data reset','All mock data restored to initial state.')">Reset demo data</span>
+    </div>
+
+    <!-- PAGES CONTAINER -->
+    <div class="pages">
+
+<!-- ══════════ PAGE: DASHBOARD ══════════ -->
+<div id="page-dashboard" class="page active">
+<div class="content">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Programme Overview</div>
+      <div class="page-subtitle">Live evidence across all eight evaluation criteria · 47 protocols converted to date</div>
+    </div>
+    <div class="page-header-actions">
+      <div style="text-align:right;font-size:12px;color:var(--text-tertiary);">Last refreshed <strong style="color:var(--text-primary);">just now</strong><br>Period: <strong style="color:var(--text-primary);">last 30 days</strong></div>
+      <button class="btn btn-secondary btn-sm" onclick="nav('quality',document.querySelector('[onclick*=quality]'))">Full Quality Report</button>
+    </div>
+  </div>
+
+  <!-- 8 Criteria Tiles -->
+  <div class="tile-grid">
+    <div class="tile tile-accuracy" onclick="nav('quality',null)">
+      <div class="tile-label"><svg class="tile-icon" viewBox="0 0 24 24"><polyline points="20 6 9 17 4 12"/></svg>Provenance of Accuracy</div>
+      <div class="tile-metric">98.7<span class="tile-suffix">%</span></div>
+      <div class="tile-support">field-level accuracy <span class="delta delta-up">↑ +2.3%</span></div>
+      <svg class="tile-spark" viewBox="0 0 200 26" preserveAspectRatio="none"><polyline points="0,22 28,19 56,17 84,14 112,11 140,8 168,5 196,3" fill="none" stroke="#137752" stroke-width="2"/></svg>
+      <div class="tile-drill">View provenance detail →</div>
+    </div>
+    <div class="tile tile-reliability" onclick="nav('quality',null)">
+      <div class="tile-label"><svg class="tile-icon" viewBox="0 0 24 24"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>Reliability</div>
+      <div class="tile-metric">99.97<span class="tile-suffix">%</span></div>
+      <div class="tile-support">uptime · MTTR 3.2 min <span class="delta delta-up">stable</span></div>
+      <svg class="tile-spark" viewBox="0 0 200 26" preserveAspectRatio="none"><polyline points="0,8 28,8 56,8 84,9 112,8 140,8 168,7 196,8" fill="none" stroke="#1E5A9C" stroke-width="2"/></svg>
+      <div class="tile-drill">View incident history →</div>
+    </div>
+    <div class="tile tile-scalability" onclick="nav('quality',null)">
+      <div class="tile-label"><svg class="tile-icon" viewBox="0 0 24 24"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>Scalability</div>
+      <div class="tile-metric">47<span class="tile-suffix"> / 200</span></div>
+      <div class="tile-support">current load · capacity <span class="delta delta-up">76% headroom</span></div>
+      <svg class="tile-spark" viewBox="0 0 200 26" preserveAspectRatio="none"><polyline points="0,18 28,16 56,18 84,15 112,17 140,12 168,14 196,11" fill="none" stroke="#1E5A9C" stroke-width="2"/></svg>
+      <div class="tile-drill">View throughput →</div>
+    </div>
+    <div class="tile tile-compliance" onclick="nav('quality',null)">
+      <div class="tile-label"><svg class="tile-icon" viewBox="0 0 24 24"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>Regulatory Compliance</div>
+      <div class="tile-metric">100<span class="tile-suffix">%</span></div>
+      <div class="tile-support">GAMP 5 · 21 CFR Part 11 <span class="delta delta-up">compliant</span></div>
+      <svg class="tile-spark" viewBox="0 0 200 26" preserveAspectRatio="none"><polyline points="0,5 28,5 56,5 84,5 112,5 140,5 168,5 196,5" fill="none" stroke="#1A3680" stroke-width="2"/></svg>
+      <div class="tile-drill">View compliance report →</div>
+    </div>
+    <div class="tile tile-cost" onclick="nav('quality',null)">
+      <div class="tile-label"><svg class="tile-icon" viewBox="0 0 24 24"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>Cost Effectiveness</div>
+      <div class="tile-metric">$147<span class="tile-suffix"> / protocol</span></div>
+      <div class="tile-support">total Bedrock spend <span class="delta delta-down">↓ -34%</span></div>
+      <svg class="tile-spark" viewBox="0 0 200 26" preserveAspectRatio="none"><polyline points="0,4 28,6 56,9 84,12 112,15 140,17 168,20 196,23" fill="none" stroke="#137752" stroke-width="2"/></svg>
+      <div class="tile-drill">View cost breakdown →</div>
+    </div>
+    <div class="tile tile-performance" onclick="nav('quality',null)">
+      <div class="tile-label"><svg class="tile-icon" viewBox="0 0 24 24"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>Performance</div>
+      <div class="tile-metric">18<span class="tile-suffix">m</span></div>
+      <div class="tile-support">P95 end-to-end · target 30m <span class="delta delta-up">40% under target</span></div>
+      <svg class="tile-spark" viewBox="0 0 200 26" preserveAspectRatio="none"><polyline points="0,12 28,11 56,13 84,10 112,12 140,9 168,11 196,8" fill="none" stroke="#0EA5E9" stroke-width="2"/></svg>
+      <div class="tile-drill">View latency by skill →</div>
+    </div>
+    <div class="tile tile-ux" onclick="nav('quality',null)">
+      <div class="tile-label"><svg class="tile-icon" viewBox="0 0 24 24"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M23 21v-2a4 4 0 0 0-3-3.87"/></svg>User Experience</div>
+      <div class="tile-metric">4.2<span class="tile-suffix">h</span></div>
+      <div class="tile-support">reviewer time per study <span class="delta delta-down">↓ -47%</span></div>
+      <svg class="tile-spark" viewBox="0 0 200 26" preserveAspectRatio="none"><polyline points="0,4 28,7 56,10 84,13 112,16 140,19 168,21 196,23" fill="none" stroke="#0EA5E9" stroke-width="2"/></svg>
+      <div class="tile-drill">View reviewer analytics →</div>
+    </div>
+    <div class="tile tile-integration" onclick="nav('integrations',document.querySelector('[onclick*=integrations]'))">
+      <div class="tile-label"><svg class="tile-icon" viewBox="0 0 24 24"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>Integrateability</div>
+      <div class="tile-metric">10<span class="tile-suffix"> / 10</span></div>
+      <div class="tile-support">integrations green · 98.4% delivery <span class="delta delta-up">all healthy</span></div>
+      <svg class="tile-spark" viewBox="0 0 200 26" preserveAspectRatio="none"><polyline points="0,6 28,5 56,7 84,5 112,6 140,5 168,6 196,5" fill="none" stroke="#1E5A9C" stroke-width="2"/></svg>
+      <div class="tile-drill">View integration health →</div>
+    </div>
+  </div>
+
+  <!-- Activity + Lineage -->
+  <div class="split-row">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Recent activity</div>
+        <div class="panel-action">View all →</div>
+      </div>
+      <div class="activity-list">
+        <div class="activity-row" onclick="nav('workbench',null)">
+          <div class="activity-icon ai-success">✓</div>
+          <div class="activity-content">
+            <div class="activity-title">Conversion completed in 18m 42s</div>
+            <div class="activity-meta"><span class="study-id">NCT05847219</span>Onc-2026 Phase 2 NSCLC · 47 auto-accepted, 8 for review</div>
+          </div>
+          <div class="activity-time">2m ago</div>
+        </div>
+        <div class="activity-row" onclick="nav('lineage',null)">
+          <div class="activity-icon ai-warning">⚠</div>
+          <div class="activity-content">
+            <div class="activity-title">Amendment 03 introduced 12 conflicts</div>
+            <div class="activity-meta"><span class="study-id">NCT05768423</span>CNS-2026-02 · review required on eligibility</div>
+          </div>
+          <div class="activity-time">14m ago</div>
+        </div>
+        <div class="activity-row">
+          <div class="activity-icon ai-info">∴</div>
+          <div class="activity-content">
+            <div class="activity-title">M11 round-trip succeeded — 47/47 sections equivalent</div>
+            <div class="activity-meta"><span class="study-id">NCT06024518</span>Vacc-2026 · all sections semantically equivalent</div>
+          </div>
+          <div class="activity-time">1h ago</div>
+        </div>
+        <div class="activity-row">
+          <div class="activity-icon ai-danger">×</div>
+          <div class="activity-content">
+            <div class="activity-title">Conformance failed after 5 iterations — sent to SME</div>
+            <div class="activity-meta"><span class="study-id">NCT06281547</span>Inflam-2026 · Dr. Vikram Patel assigned</div>
+          </div>
+          <div class="activity-time">2h ago</div>
+        </div>
+        <div class="activity-row">
+          <div class="activity-icon ai-success">✓</div>
+          <div class="activity-content">
+            <div class="activity-title">Anita Rao accepted 23 standards corrections</div>
+            <div class="activity-meta"><span class="study-id">NCT05912047</span>CV-2025-04 · CT codes resolved against CDISC 2026-Q1</div>
+          </div>
+          <div class="activity-time">3h ago</div>
+        </div>
+        <div class="activity-row">
+          <div class="activity-icon ai-accent">↑</div>
+          <div class="activity-content">
+            <div class="activity-title">Sonnet 4.6 promoted to production</div>
+            <div class="activity-meta">Eval-set +3.2% over 4.5 · canary clean 72h · auto-promoted</div>
+          </div>
+          <div class="activity-time">6h ago</div>
+        </div>
+      </div>
+    </div>
+
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Lineage at a glance</div>
+        <div class="panel-action" onclick="nav('lineage',document.querySelector('[onclick*=lineage]'))">Explore →</div>
+      </div>
+      <div class="lineage-mini-body">
+        <svg viewBox="0 0 320 100" style="width:100%;height:90px;margin-bottom:14px;">
+          <text x="0" y="13" font-family="DM Sans,sans-serif" font-size="9" fill="#6B7787" font-weight="700" text-transform="uppercase">PROTOCOL</text>
+          <line x1="0" y1="28" x2="320" y2="28" stroke="#E5E9EE" stroke-width="1"/>
+          <circle cx="20" cy="28" r="6" fill="#1A3680"/>
+          <circle cx="100" cy="28" r="6" fill="#1A3680"/>
+          <circle cx="180" cy="28" r="6" fill="#1A3680"/>
+          <circle cx="260" cy="28" r="6" fill="#1A3680"/>
+          <circle cx="308" cy="28" r="6" fill="#1A3680"/>
+          <text x="0" y="62" font-family="DM Sans,sans-serif" font-size="9" fill="#6B7787" font-weight="700">USDM</text>
+          <line x1="0" y1="77" x2="320" y2="77" stroke="#E5E9EE" stroke-width="1"/>
+          <rect x="16" y="73" width="8" height="8" fill="#0EA5E9" rx="1"/>
+          <rect x="76" y="73" width="8" height="8" fill="#0EA5E9" rx="1"/>
+          <rect x="96" y="73" width="8" height="8" fill="#0EA5E9" rx="1"/>
+          <rect x="156" y="73" width="8" height="8" fill="#0EA5E9" rx="1"/>
+          <rect x="176" y="73" width="8" height="8" fill="#0EA5E9" rx="1"/>
+          <rect x="236" y="73" width="8" height="8" fill="#0EA5E9" rx="1"/>
+          <rect x="256" y="73" width="8" height="8" fill="#0EA5E9" rx="1"/>
+          <rect x="304" y="73" width="8" height="8" fill="#0EA5E9" rx="1"/>
+          <line x1="20" y1="34" x2="20" y2="73" stroke="#CBD3DC" stroke-dasharray="2,2"/>
+          <line x1="100" y1="34" x2="100" y2="73" stroke="#CBD3DC" stroke-dasharray="2,2"/>
+          <line x1="180" y1="34" x2="180" y2="73" stroke="#CBD3DC" stroke-dasharray="2,2"/>
+          <line x1="260" y1="34" x2="260" y2="73" stroke="#CBD3DC" stroke-dasharray="2,2"/>
+          <line x1="308" y1="18" x2="308" y2="90" stroke="#0EA5E9" stroke-dasharray="3,3" stroke-width="1.5"/>
+          <text x="305" y="97" font-family="Fira Code,monospace" font-size="8" fill="#0EA5E9" text-anchor="end" font-weight="700">TODAY</text>
+        </svg>
+        <div class="lineage-row"><span class="lineage-row-label">Protocols tracked</span><span class="lineage-row-val">47</span></div>
+        <div class="lineage-row"><span class="lineage-row-label">Amendments processed</span><span class="lineage-row-val">128</span></div>
+        <div class="lineage-row"><span class="lineage-row-label">Lineage events captured</span><span class="lineage-row-val">14,832</span></div>
+        <div class="lineage-row"><span class="lineage-row-label">Reviewer corrections</span><span class="lineage-row-val">3,471</span></div>
+        <div class="lineage-row"><span class="lineage-row-label">PROV-O bundles exported</span><span class="lineage-row-val">216</span></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div><!-- /dashboard -->
+
+<!-- ══════════ PAGE: CONVERSIONS ══════════ -->
+<div id="page-conversions" class="page">
+<div class="content">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Conversions</div>
+      <div class="page-subtitle">All protocol-to-USDM conversion runs · 8 studies in corpus</div>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-primary btn-sm" onclick="showToast('info','New Conversion','Upload dialog would open here — not wired in demo.')">+ New Conversion</button>
+    </div>
+  </div>
+  <div class="table-card">
+    <div class="table-toolbar">
+      <input class="table-search" placeholder="Search by study ID, title, status…" />
+      <div class="table-actions">
+        <button class="btn btn-secondary btn-sm">Filter</button>
+        <button class="btn btn-secondary btn-sm">Export</button>
+      </div>
+    </div>
+    <table class="data-table">
+      <thead><tr>
+        <th>Study ID</th><th>Title</th><th>Phase · TA</th><th>Status</th><th>Conversion ID</th><th>Duration</th><th>Model</th><th>Fields</th><th>Actions</th>
+      </tr></thead>
+      <tbody>
+        <tr onclick="nav('workbench',null)">
+          <td><span class="mono">NCT05847219</span></td>
+          <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Onc-2026: Pembrolizumab + chemo in advanced NSCLC</td>
+          <td><span class="chip">Phase 2</span> <span class="chip">Oncology</span></td>
+          <td><span class="badge badge-warning">In Review</span></td>
+          <td><span class="mono">CONV-2026-04-127</span></td>
+          <td>18m 42s</td>
+          <td><span class="mono" style="font-size:11px;">Sonnet 4.6</span></td>
+          <td>47 flagged / 312 total</td>
+          <td><button class="btn btn-secondary btn-sm" onclick="nav('workbench',null);event.stopPropagation()">Review</button></td>
+        </tr>
+        <tr>
+          <td><span class="mono">NCT05912047</span></td>
+          <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">CV-2025-04: Atorvastatin in primary prevention</td>
+          <td><span class="chip">Phase 3</span> <span class="chip">Cardiovascular</span></td>
+          <td><span class="badge badge-success">Completed</span></td>
+          <td><span class="mono">CONV-2026-04-128</span></td>
+          <td>22m 14s</td>
+          <td><span class="mono" style="font-size:11px;">Sonnet 4.6</span></td>
+          <td>0 flagged / 287 total</td>
+          <td><button class="btn btn-secondary btn-sm">View</button></td>
+        </tr>
+        <tr>
+          <td><span class="mono">NCT06024518</span></td>
+          <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Vacc-2026: Bivalent mRNA vaccine immunogenicity</td>
+          <td><span class="chip">Phase 2/3</span> <span class="chip">Vaccines</span></td>
+          <td><span class="badge badge-info">In Review</span></td>
+          <td><span class="mono">CONV-2026-04-130</span></td>
+          <td>19m 08s</td>
+          <td><span class="mono" style="font-size:11px;">Sonnet 4.6</span></td>
+          <td>12 flagged / 341 total</td>
+          <td><button class="btn btn-secondary btn-sm">Review</button></td>
+        </tr>
+        <tr>
+          <td><span class="mono">NCT05768423</span></td>
+          <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">CNS-2026-02: Ponesimod in relapsing MS extension</td>
+          <td><span class="chip">Phase 3</span> <span class="chip">CNS</span></td>
+          <td><span class="badge badge-accent">Amendment 03</span></td>
+          <td><span class="mono">CONV-2026-03-098</span></td>
+          <td>31m 55s</td>
+          <td><span class="mono" style="font-size:11px;">Sonnet 4.5</span></td>
+          <td>34 flagged / 298 total</td>
+          <td><button class="btn btn-secondary btn-sm">View</button></td>
+        </tr>
+        <tr>
+          <td><span class="mono">NCT06281547</span></td>
+          <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Inflam-2026: JAK1 inhibitor in moderate UC</td>
+          <td><span class="chip">Phase 2</span> <span class="chip">Inflammation</span></td>
+          <td><span class="badge badge-danger">Failed CRS</span></td>
+          <td><span class="mono">CONV-2026-04-129</span></td>
+          <td>48m 22s</td>
+          <td><span class="mono" style="font-size:11px;">Sonnet 4.6</span></td>
+          <td>— / 310 total</td>
+          <td><button class="btn btn-secondary btn-sm">Investigate</button></td>
+        </tr>
+        <tr>
+          <td><span class="mono">NCT05634891</span></td>
+          <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Onc-2025-11: Palbociclib first-line metastatic breast cancer</td>
+          <td><span class="chip">Phase 3</span> <span class="chip">Oncology</span></td>
+          <td><span class="badge badge-success">Completed</span></td>
+          <td><span class="mono">CONV-2025-11-088</span></td>
+          <td>24m 37s</td>
+          <td><span class="mono" style="font-size:11px;">Sonnet 4.5</span></td>
+          <td>0 flagged / 276 total</td>
+          <td><button class="btn btn-secondary btn-sm">View</button></td>
+        </tr>
+        <tr>
+          <td><span class="mono">NCT06158732</span></td>
+          <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Pain-2026: Tanezumab in osteoarthritis, dose-finding</td>
+          <td><span class="chip">Phase 2</span> <span class="chip">Pain</span></td>
+          <td><span class="badge badge-neutral">Queued</span></td>
+          <td>—</td><td>—</td>
+          <td>—</td>
+          <td>—</td>
+          <td><button class="btn btn-accent btn-sm">Start</button></td>
+        </tr>
+        <tr>
+          <td><span class="mono">NCT05891234</span></td>
+          <td style="max-width:220px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Endo-2026: GLP-1 agonist in T2DM with CKD</td>
+          <td><span class="chip">Phase 3</span> <span class="chip">Endocrine</span></td>
+          <td><span class="badge badge-info">In Review</span></td>
+          <td><span class="mono">CONV-2026-04-131</span></td>
+          <td>27m 04s</td>
+          <td><span class="mono" style="font-size:11px;">Sonnet 4.6</span></td>
+          <td>21 flagged / 332 total</td>
+          <td><button class="btn btn-secondary btn-sm">Review</button></td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="padding:12px 20px;border-top:1px solid var(--border-subtle);font-size:12px;color:var(--text-tertiary);display:flex;justify-content:space-between;align-items:center;">
+      <span>1–8 of 8 conversions</span>
+      <div style="display:flex;gap:4px;">
+        <button class="btn btn-secondary btn-sm" style="min-width:32px;">‹</button>
+        <button class="btn btn-primary btn-sm" style="min-width:32px;">1</button>
+        <button class="btn btn-secondary btn-sm" style="min-width:32px;">›</button>
+      </div>
+    </div>
+  </div>
+</div>
+</div><!-- /conversions -->
+
+
+<!-- ══════════ PAGE: REVIEWER WORKBENCH ══════════ -->
+<div id="page-workbench" class="page">
+<div class="workbench-wrap">
+  <div style="padding:14px 20px;border-bottom:1px solid var(--border-subtle);background:var(--surface-base);display:flex;align-items:center;gap:16px;flex-shrink:0;">
+    <div>
+      <div style="font-size:13px;font-weight:600;color:var(--text-primary);">Reviewer Workbench · <span class="mono">CONV-2026-04-127</span></div>
+      <div style="font-size:12px;color:var(--text-tertiary);margin-top:2px;"><span class="mono">NCT05847219</span> · Onc-2026: Pembrolizumab + chemo in advanced NSCLC · Phase 2</div>
+    </div>
+    <div style="margin-left:auto;display:flex;gap:8px;align-items:center;">
+      <span class="badge badge-warning">47 flagged</span>
+      <span class="badge badge-info">8 standards</span>
+      <span class="badge badge-accent">3 SME</span>
+      <button class="btn btn-secondary btn-sm">Export Provenance</button>
+    </div>
+  </div>
+  <div class="workbench-panes">
+
+    <!-- LEFT: Protocol source -->
+    <div class="wb-pane">
+      <div class="wb-pane-header">
+        <div class="wb-pane-label">Source Protocol</div>
+        <div class="wb-pane-title">NCT05847219_Protocol_v3.0.pdf</div>
+      </div>
+      <div style="padding:8px 16px;border-bottom:1px solid var(--border-subtle);background:var(--surface-sunken);display:flex;gap:8px;flex-shrink:0;">
+        <select style="font-size:12px;border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;background:white;color:var(--text-secondary);font-family:var(--font-body);">
+          <option>§ 4.2.1 — Inclusion Criteria</option>
+          <option>§ 1 — Title Page</option>
+          <option>§ 4.1 — Trial Design</option>
+          <option>§ 4.2.2 — Exclusion Criteria</option>
+          <option>§ 6.1 — Schedule of Activities</option>
+        </select>
+        <input style="font-size:12px;border:1px solid var(--border-subtle);border-radius:4px;padding:4px 8px;font-family:var(--font-body);width:120px;" placeholder="⌘F Search…">
+      </div>
+      <div class="wb-pane-body">
+        <div class="protocol-section">
+          <div class="proto-h">4.2 Eligibility Criteria</div>
+          <div class="proto-h" style="font-size:13px;margin-top:12px;">4.2.1 Inclusion Criteria</div>
+          <div class="proto-p">Each subject must meet all of the following criteria to be eligible to participate in this study:</div>
+          <div class="proto-p"><strong>IC-01.</strong> Adults ≥ 18 years of age at signing of informed consent.</div>
+          <div class="proto-p"><strong>IC-02.</strong> Histologically or cytologically confirmed metastatic or locally advanced NSCLC.</div>
+          <div class="proto-p"><strong>IC-03.</strong> Measurable disease per RECIST v1.1 criteria as assessed by investigator.</div>
+          <div class="proto-p"><strong>IC-04.</strong> <span class="proto-highlight" title="Linked to ELIG-007 · click to navigate">ECOG performance status of 0 or 1 at time of screening.</span></div>
+          <div class="proto-p"><strong>IC-05.</strong> Adequate organ function defined as:
+            <br>— Absolute neutrophil count (ANC) ≥ 1.5 × 10⁹/L
+            <br>— Hemoglobin ≥ 9.0 g/dL
+            <br>— Platelet count ≥ 100 × 10⁹/L
+            <br>— Total bilirubin ≤ 1.5 × ULN
+            <br>— AST/ALT ≤ 2.5 × ULN (≤ 5 × ULN if liver metastases present)
+            <br>— Creatinine clearance ≥ 50 mL/min (Cockcroft-Gault formula)
+          </div>
+          <div class="proto-p"><strong>IC-06.</strong> Estimated life expectancy ≥ 12 weeks at the time of randomization.</div>
+          <div class="proto-p"><strong>IC-07.</strong> Female subjects of reproductive potential must agree to use highly effective contraception during the study and for 6 months following last dose of investigational product.</div>
+        </div>
+        <div class="protocol-section">
+          <div class="proto-h" style="font-size:13px;">4.2.2 Exclusion Criteria</div>
+          <div class="proto-p"><strong>EX-01.</strong> Prior systemic therapy for metastatic NSCLC. (Prior adjuvant/neoadjuvant therapy permitted if completed ≥ 12 months before study entry.)</div>
+          <div class="proto-p"><strong>EX-02.</strong> Active or untreated CNS metastases.</div>
+          <div class="proto-p"><strong>EX-03.</strong> Active autoimmune disease requiring systemic immunosuppression within the past 2 years.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- CENTER: USDM extraction -->
+    <div class="wb-pane">
+      <div class="wb-pane-header">
+        <div class="wb-pane-label">USDM Extraction</div>
+        <div style="display:flex;align-items:center;justify-content:space-between;margin-top:4px;">
+          <div class="wb-pane-title">INCLUSION CRITERION 7 · <span class="mono" style="font-size:12px;">ELIG-007</span></div>
+          <span class="badge badge-warning">⚠ 87% conf.</span>
+        </div>
+      </div>
+      <div style="padding:10px 16px;border-bottom:1px solid var(--border-subtle);background:var(--surface-sunken);flex-shrink:0;display:flex;gap:12px;align-items:center;font-size:12px;color:var(--text-tertiary);">
+        <span>Skill: <strong style="color:var(--text-secondary);">extract_eligibility v3.2.1</strong></span>
+        <span>Iteration: <strong style="color:var(--text-secondary);">2 / 3</strong></span>
+        <span>Run: <span class="mono">CONV-2026-04-127</span></span>
+      </div>
+      <div class="wb-pane-body">
+        <div class="conf-bar conf-med" style="margin-bottom:14px;">
+          <div class="conf-fill" style="width:87%;background:var(--warning);"></div>
+        </div>
+        <pre class="json-block"><span class="json-key">"id"</span>: <span class="json-str">"ELIG-007"</span>,
+<span class="json-key">"category"</span>: <span class="json-str">"INCLUSION"</span>,
+<span class="json-key">"criterionText"</span>: <span class="json-str">"Subjects must have ECOG performance status of 0 or 1"</span>,
+<span class="json-key">"structuredCondition"</span>: {
+  <span class="json-key">"concept"</span>: <span class="json-str">"ECOG_PERFORMANCE_STATUS"</span>,
+  <span class="json-key">"operator"</span>: <span class="json-str">"IN"</span>,
+  <span class="json-key">"values"</span>: [<span class="json-str">"0"</span>, <span class="json-str">"1"</span>]
+},
+<span class="json-key">"ctCode"</span>: <span class="json-str">"C102680"</span>,
+<span class="json-key">"linkedPopulation"</span>: <span class="json-str">"POP-01"</span></pre>
+
+        <div class="collapse-card open" style="margin-top:12px;">
+          <div class="collapse-header" onclick="this.parentElement.classList.toggle('open')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            Why this value? (Provenance)
+            <svg class="collapse-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div class="collapse-body">
+            <div class="prov-row"><span class="prov-label">Model</span><span class="prov-val mono">claude-sonnet-4-6</span></div>
+            <div class="prov-row"><span class="prov-label">Skill version</span><span class="prov-val">extract_eligibility v3.2.1</span></div>
+            <div class="prov-row"><span class="prov-label">Confidence</span><span class="prov-val" style="color:var(--warning);">0.87 (medium)</span></div>
+            <div class="prov-row"><span class="prov-label">Iteration</span><span class="prov-val">2 of 3</span></div>
+            <div class="prov-row"><span class="prov-label">Document</span><span class="prov-val mono">NCT05847219_Protocol_v3.0.pdf</span></div>
+            <div class="prov-row"><span class="prov-label">Section</span><span class="prov-val">§ 4.2.1, Page 23</span></div>
+            <div style="margin-top:8px;font-size:12px;color:var(--text-secondary);line-height:1.6;">The criterion was extracted from IC-04 text. ECOG codes were identified against CDISC CT C102680. Population link POP-01 is provisional — orphan flag raised.</div>
+          </div>
+        </div>
+
+        <div class="collapse-card" style="margin-top:4px;">
+          <div class="collapse-header" onclick="this.parentElement.classList.toggle('open')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg>
+            Source Span
+            <svg class="collapse-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div class="collapse-body">
+            <div class="source-span">"…ECOG performance status of 0 or 1 at time of screening…"<br><span style="color:var(--text-tertiary);">— § 4.2.1 IC-04, chars 1402–1460</span></div>
+            <button class="btn btn-secondary btn-sm" style="margin-top:8px;">Open in protocol pane</button>
+          </div>
+        </div>
+
+        <div class="collapse-card" style="margin-top:4px;">
+          <div class="collapse-header" onclick="this.parentElement.classList.toggle('open')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><polyline points="9 11 12 14 22 4"/></svg>
+            Validation Results
+            <svg class="collapse-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div class="collapse-body">
+            <div class="val-row"><span class="val-icon">✓</span><span class="val-name">Schema</span><span class="val-result val-ok">Pass · Valid EligibilityCriterion</span></div>
+            <div class="val-row"><span class="val-icon">✓</span><span class="val-name">Faithfulness</span><span class="val-result val-ok">Pass · Source span resolves</span></div>
+            <div class="val-row"><span class="val-icon">⚠</span><span class="val-name">Completeness</span><span class="val-result val-warn">Warning · linkedPopulation orphan</span></div>
+            <div class="val-row"><span class="val-icon">✓</span><span class="val-name">Conformance (CRS)</span><span class="val-result val-ok">Pass · All applicable rules</span></div>
+            <div class="val-row"><span class="val-icon">—</span><span class="val-name">Round-trip (M11)</span><span class="val-result val-pend">Pending acceptance</span></div>
+          </div>
+        </div>
+
+        <div class="collapse-card" style="margin-top:4px;">
+          <div class="collapse-header" onclick="this.parentElement.classList.toggle('open')">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75"><polyline points="22 12 18 12 15 21 9 3 6 12 2 12"/></svg>
+            Self-Correction History
+            <svg class="collapse-chevron" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="6 9 12 15 18 9"/></svg>
+          </div>
+          <div class="collapse-body">
+            <div class="iter-line"><span class="iter-dot done"></span><strong>Iter 1</strong> — confidence 0.62, 3 validation errors → refine <span class="iter-arrow">→</span></div>
+            <div class="iter-line"><span class="iter-dot current"></span><strong>Iter 2</strong> — confidence 0.87, 1 warning (current) <span class="iter-arrow">→</span></div>
+            <div class="iter-line"><span class="iter-dot"></span><strong>Iter 3</strong> — terminated (improvement plateau) · <em style="color:var(--text-tertiary);">sent to HITL</em></div>
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <!-- RIGHT: Provenance -->
+    <div class="wb-pane">
+      <div class="wb-pane-header">
+        <div class="wb-pane-label">Provenance &amp; Similar</div>
+        <div class="wb-pane-title">ELIG-007 · v2.3</div>
+      </div>
+      <div class="wb-pane-body">
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);margin-bottom:8px;">Extraction Details</div>
+        <div class="prov-row"><span class="prov-label">Model</span><span class="prov-val mono" style="font-size:10px;">claude-sonnet-4-6</span></div>
+        <div class="prov-row"><span class="prov-label">Skill</span><span class="prov-val mono" style="font-size:10px;">extract_eligibility v3.2.1</span></div>
+        <div class="prov-row"><span class="prov-label">Run ID</span><span class="prov-val mono" style="font-size:10px;">CONV-2026-04-127</span></div>
+        <div class="prov-row"><span class="prov-label">Generated</span><span class="prov-val">Apr 30, 2026 14:23 UTC</span></div>
+
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);margin:14px 0 8px;">Source Highlight</div>
+        <div class="source-span">"…ECOG performance status of <strong>0 or 1</strong> at time of screening…"</div>
+
+        <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);margin:14px 0 8px;">3 Similar Past Cases</div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <div style="background:var(--surface-sunken);border:1px solid var(--border-subtle);border-radius:6px;padding:10px 12px;cursor:pointer;font-size:12px;" onclick="showToast('info','Similar case','NCT05634891 ELIG-008 opened in comparison view.')">
+            <div style="font-weight:600;color:var(--text-primary);margin-bottom:2px;">ELIG-008 · NCT05634891</div>
+            <div style="color:var(--text-tertiary);">ECOG 0-1 · confidence 0.94 · Accepted by S.Chen</div>
+          </div>
+          <div style="background:var(--surface-sunken);border:1px solid var(--border-subtle);border-radius:6px;padding:10px 12px;cursor:pointer;font-size:12px;">
+            <div style="font-weight:600;color:var(--text-primary);margin-bottom:2px;">ELIG-004 · NCT06024518</div>
+            <div style="color:var(--text-tertiary);">ECOG 0-1 · confidence 0.91 · Accepted</div>
+          </div>
+          <div style="background:var(--surface-sunken);border:1px solid var(--border-subtle);border-radius:6px;padding:10px 12px;cursor:pointer;font-size:12px;">
+            <div style="font-weight:600;color:var(--text-primary);margin-bottom:2px;">ELIG-012 · NCT05912047</div>
+            <div style="color:var(--text-tertiary);">ECOG 0-2 (amended) · confidence 0.88</div>
+          </div>
+        </div>
+        <button class="btn btn-accent btn-sm" style="width:100%;margin-top:12px;" onclick="showToast('info','Corpus suggestion','Showing side-by-side comparison with corpus match.')">Suggest from corpus</button>
+
+        <div style="margin-top:16px;border-top:1px solid var(--border-subtle);padding-top:12px;">
+          <div style="font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);margin-bottom:8px;">Audit Trail</div>
+          <div style="font-size:12px;color:var(--text-secondary);display:flex;flex-direction:column;gap:6px;">
+            <div>Apr 30 — Created (auto-extraction)</div>
+            <div style="color:var(--brand-accent);">Apr 30 — Under review · Sarah Chen (CR)</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Action bar -->
+  <div class="workbench-bar">
+    <div class="wb-progress">Item <strong>1</strong> of <strong>47</strong> flagged · <strong>3</strong> SME · <strong>8</strong> standards · <strong>36</strong> clinical &nbsp;&nbsp; <kbd style="font-family:var(--font-mono);font-size:10px;background:var(--surface-sunken);border:1px solid var(--border-default);border-radius:3px;padding:1px 5px;">⌘←</kbd>/<kbd style="font-family:var(--font-mono);font-size:10px;background:var(--surface-sunken);border:1px solid var(--border-default);border-radius:3px;padding:1px 5px;">⌘→</kbd> navigate</div>
+    <div class="wb-actions">
+      <button class="btn btn-secondary btn-sm" onclick="showToast('info','Rejected','ELIG-007 rejected. Reason picker would open.')">Reject <kbd style="font-size:10px;opacity:0.6;">R</kbd></button>
+      <button class="btn btn-secondary btn-sm" onclick="showToast('info','Edit mode','Edit dialog would open here.')">Edit &amp; Accept <kbd style="font-size:10px;opacity:0.6;">E</kbd></button>
+      <button class="btn btn-secondary btn-sm" onclick="showToast('info','Sent to SME','ELIG-007 routed to Dr. Vikram Patel (SME).')">Send to SME <kbd style="font-size:10px;opacity:0.6;">S</kbd></button>
+      <button class="btn btn-accent" style="height:36px;padding:0 16px;font-size:13px;" onclick="showToast('success','Accepted','ELIG-007 accepted · advancing to item 2 of 47.')">Accept <kbd style="font-size:10px;opacity:0.7;">A</kbd></button>
+    </div>
+  </div>
+</div>
+</div><!-- /workbench -->
+
+
+<!-- ══════════ PAGE: LINEAGE EXPLORER ══════════ -->
+<div id="page-lineage" class="page">
+<div class="content">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Lineage Explorer</div>
+      <div class="page-subtitle">Protocol &amp; USDM version history · Study: <span class="mono">NCT05847219</span> · Onc-2026 Phase 2 NSCLC</div>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-secondary btn-sm" onclick="showToast('info','PROV-O','Generating W3C PROV-O JSON-LD bundle…')">Export PROV-O</button>
+      <button class="btn btn-secondary btn-sm" onclick="showToast('info','Impact Analysis','Amendment 03 impact analysis loading…')">Amendment 03 impact</button>
+    </div>
+  </div>
+
+  <div style="display:flex;align-items:center;gap:16px;margin-bottom:20px;">
+    <div class="lineage-view-toggle">
+      <div class="view-tab active" id="lt-timeline" onclick="switchLineageView('timeline')">Timeline</div>
+      <div class="view-tab" id="lt-field" onclick="switchLineageView('field')">Field History</div>
+      <div class="view-tab" id="lt-graph" onclick="switchLineageView('graph')">Graph</div>
+    </div>
+    <select style="height:34px;border:1px solid var(--border-default);border-radius:var(--radius-sm);padding:0 12px;font-family:var(--font-body);font-size:13px;color:var(--text-secondary);">
+      <option>NCT05847219 — Onc-2026</option>
+      <option>NCT05768423 — CNS-2026-02</option>
+      <option>NCT05912047 — CV-2025-04</option>
+    </select>
+    <span style="font-size:12px;color:var(--text-tertiary);">247 nodes · 412 edges</span>
+  </div>
+
+  <!-- Timeline view -->
+  <div id="lin-view-timeline">
+    <div class="panel" style="margin-bottom:16px;">
+      <div class="panel-header">
+        <div class="panel-title">Protocol &amp; USDM version timeline · <span class="mono">NCT05847219</span></div>
+        <div style="font-size:12px;color:var(--text-tertiary);">Scroll to zoom · click node for details</div>
+      </div>
+      <div style="padding:28px 32px;">
+        <!-- Protocol axis -->
+        <div class="lin-axis-label">Protocol</div>
+        <div style="position:relative;margin-bottom:32px;">
+          <svg viewBox="0 0 900 60" style="width:100%;height:60px;">
+            <line x1="0" y1="30" x2="900" y2="30" stroke="#CBD3DC" stroke-width="1.5"/>
+            <!-- Nodes -->
+            <circle cx="60" cy="30" r="9" fill="#1A3680"/><text x="60" y="56" text-anchor="middle" font-size="10" fill="#6B7787" font-family="Fira Code,monospace">v1.0</text><text x="60" y="14" text-anchor="middle" font-size="9" fill="#6B7787" font-family="DM Sans,sans-serif">Mar 2024</text>
+            <circle cx="260" cy="30" r="9" fill="#1A3680"/><text x="260" y="56" text-anchor="middle" font-size="10" fill="#6B7787" font-family="Fira Code,monospace">v1.1</text><text x="260" y="14" text-anchor="middle" font-size="9" fill="#6B7787" font-family="DM Sans,sans-serif">Aug 2024</text>
+            <circle cx="480" cy="30" r="9" fill="#1A3680"/><text x="480" y="56" text-anchor="middle" font-size="10" fill="#6B7787" font-family="Fira Code,monospace">v2.0</text><text x="480" y="14" text-anchor="middle" font-size="9" fill="#6B7787" font-family="DM Sans,sans-serif">Feb 2025</text>
+            <circle cx="660" cy="30" r="9" fill="#1A3680"/><text x="660" y="56" text-anchor="middle" font-size="10" fill="#6B7787" font-family="Fira Code,monospace">v2.1</text><text x="660" y="14" text-anchor="middle" font-size="9" fill="#6B7787" font-family="DM Sans,sans-serif">Jun 2025</text>
+            <circle cx="850" cy="30" r="9" fill="#0EA5E9" stroke="#fff" stroke-width="2"/><text x="850" y="56" text-anchor="middle" font-size="10" fill="#0EA5E9" font-family="Fira Code,monospace">v3.0</text><text x="850" y="14" text-anchor="middle" font-size="9" fill="#0EA5E9" font-family="DM Sans,sans-serif" font-weight="600">Jan 2026</text>
+          </svg>
+        </div>
+        <!-- USDM axis -->
+        <div class="lin-axis-label">USDM</div>
+        <svg viewBox="0 0 900 70" style="width:100%;height:70px;">
+          <line x1="0" y1="35" x2="900" y2="35" stroke="#CBD3DC" stroke-width="1.5"/>
+          <!-- USDM nodes (squares) -->
+          <rect x="52" y="27" width="16" height="16" fill="#0EA5E9" rx="2"/>
+          <rect x="182" y="27" width="14" height="14" fill="#0EA5E9" rx="2"/>
+          <rect x="252" y="27" width="16" height="16" fill="#0EA5E9" rx="2"/>
+          <rect x="382" y="27" width="14" height="14" fill="#0EA5E9" rx="2"/>
+          <rect x="472" y="27" width="16" height="16" fill="#0EA5E9" rx="2"/>
+          <rect x="592" y="27" width="14" height="14" fill="#0EA5E9" rx="2"/>
+          <rect x="652" y="27" width="16" height="16" fill="#0EA5E9" rx="2"/>
+          <rect x="842" y="27" width="16" height="16" fill="#0EA5E9" rx="2" stroke="#fff" stroke-width="2"/>
+          <!-- Version labels -->
+          <text x="60" y="62" text-anchor="middle" font-size="9" fill="#6B7787" font-family="Fira Code,monospace">v1.0</text>
+          <text x="189" y="62" text-anchor="middle" font-size="9" fill="#6B7787" font-family="Fira Code,monospace">v1.1</text>
+          <text x="260" y="62" text-anchor="middle" font-size="9" fill="#6B7787" font-family="Fira Code,monospace">v1.2</text>
+          <text x="389" y="62" text-anchor="middle" font-size="9" fill="#6B7787" font-family="Fira Code,monospace">v2.0</text>
+          <text x="480" y="62" text-anchor="middle" font-size="9" fill="#6B7787" font-family="Fira Code,monospace">v2.1</text>
+          <text x="599" y="62" text-anchor="middle" font-size="9" fill="#6B7787" font-family="Fira Code,monospace">v2.2</text>
+          <text x="660" y="62" text-anchor="middle" font-size="9" fill="#6B7787" font-family="Fira Code,monospace">v2.3</text>
+          <text x="850" y="62" text-anchor="middle" font-size="9" fill="#0EA5E9" font-family="Fira Code,monospace" font-weight="700">v3.0</text>
+          <!-- Dashed connectors prot→usdm -->
+          <line x1="60" y1="-35" x2="60" y2="27" stroke="#CBD3DC" stroke-dasharray="3,3" transform="translate(0,62)"/>
+          <line x1="260" y1="-35" x2="260" y2="27" stroke="#CBD3DC" stroke-dasharray="3,3" transform="translate(0,62)"/>
+          <line x1="480" y1="-35" x2="480" y2="27" stroke="#CBD3DC" stroke-dasharray="3,3" transform="translate(0,62)"/>
+          <line x1="660" y1="-35" x2="660" y2="27" stroke="#CBD3DC" stroke-dasharray="3,3" transform="translate(0,62)"/>
+          <line x1="850" y1="-35" x2="850" y2="27" stroke="#0EA5E9" stroke-dasharray="3,3" transform="translate(0,62)"/>
+          <!-- Today line -->
+          <line x1="876" y1="-80" x2="876" y2="68" stroke="#0EA5E9" stroke-dasharray="4,4" stroke-width="1.5"/>
+          <text x="874" y="68" text-anchor="end" font-size="8" fill="#0EA5E9" font-family="Fira Code,monospace" font-weight="700">TODAY</text>
+        </svg>
+      </div>
+    </div>
+
+    <!-- Field history table -->
+    <div class="table-card">
+      <div class="panel-header">
+        <div class="panel-title">Field history · <span class="mono">ELIG-007</span> (ECOG Performance Status)</div>
+        <div class="panel-action">Change field →</div>
+      </div>
+      <table class="data-table">
+        <thead><tr><th>When</th><th>Event</th><th>Who / System</th><th>Value</th><th>Reason</th></tr></thead>
+        <tbody>
+          <tr><td class="mono" style="font-size:11px;white-space:nowrap;">Mar 12, 2024</td><td><span class="badge badge-accent">INTRODUCED</span></td><td>Auto-extraction v1.0</td><td>"ECOG 0 or 1"</td><td>Initial conversion</td></tr>
+          <tr><td class="mono" style="font-size:11px;white-space:nowrap;">Aug 14, 2024</td><td><span class="badge badge-neutral">EQUIVALENT</span></td><td>Auto-extraction v1.1</td><td>"ECOG 0 or 1"</td><td>Amendment v1.1 — no change</td></tr>
+          <tr><td class="mono" style="font-size:11px;white-space:nowrap;">Aug 16, 2024</td><td><span class="badge badge-warning">CHANGED_BY</span></td><td>Anita Rao (Standards)</td><td>CT code C102680 added</td><td>Standards review correction</td></tr>
+          <tr><td class="mono" style="font-size:11px;white-space:nowrap;">Feb 03, 2025</td><td><span class="badge badge-info">MODIFIED</span></td><td>Amendment v2.0</td><td>"ECOG 0, 1, or 2"</td><td>Protocol broadened criterion</td></tr>
+          <tr><td class="mono" style="font-size:11px;white-space:nowrap;">Feb 05, 2025</td><td><span class="badge badge-warning">CHANGED_BY</span></td><td>Dr. Vikram Patel (SME)</td><td>Population link adjusted</td><td>SME adjudication</td></tr>
+          <tr><td class="mono" style="font-size:11px;white-space:nowrap;">Jan 18, 2026</td><td><span class="badge badge-accent">MODEL_UPGRADE</span></td><td>System (auto)</td><td>Re-extracted; value unchanged</td><td>Sonnet 4.5→4.6 upgrade · conf ↑ 0.87→0.94</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Graph view (placeholder SVG) -->
+  <div id="lin-view-graph" style="display:none;">
+    <div class="panel" style="height:520px;overflow:hidden;">
+      <div class="panel-header">
+        <div class="panel-title">Lineage Graph · NCT05847219 · 247 nodes · 412 edges</div>
+        <div style="display:flex;gap:8px;">
+          <button class="btn btn-secondary btn-sm">Force</button>
+          <button class="btn btn-secondary btn-sm">Hierarchical</button>
+          <button class="btn btn-secondary btn-sm">Fit view</button>
+        </div>
+      </div>
+      <div style="position:relative;height:calc(100% - 52px);background:var(--surface-sunken);">
+        <svg viewBox="0 0 900 450" style="width:100%;height:100%;">
+          <!-- Graph edges -->
+          <line x1="200" y1="120" x2="340" y2="200" stroke="#1A3680" stroke-width="1.5"/>
+          <line x1="340" y1="200" x2="480" y2="120" stroke="#1A3680" stroke-width="1.5"/>
+          <line x1="340" y1="200" x2="340" y2="310" stroke="#B45309" stroke-width="1.5" stroke-dasharray="0"/>
+          <line x1="480" y1="120" x2="620" y2="200" stroke="#1A3680" stroke-width="1.5"/>
+          <line x1="340" y1="310" x2="480" y2="310" stroke="#0EA5E9" stroke-width="1.5" stroke-dasharray="5,3"/>
+          <line x1="620" y1="200" x2="760" y2="120" stroke="#1A3680" stroke-width="1.5"/>
+          <line x1="620" y1="200" x2="620" y2="310" stroke="#B45309" stroke-width="1.5"/>
+          <line x1="480" y1="310" x2="620" y2="310" stroke="#8C97A6" stroke-width="1" stroke-dasharray="4,3"/>
+          <line x1="760" y1="120" x2="760" y2="310" stroke="#0EA5E9" stroke-width="1.5"/>
+          <!-- Protocol nodes (circles) -->
+          <circle cx="200" cy="120" r="14" fill="#1A3680"/><text x="200" y="100" text-anchor="middle" font-size="9" fill="#6B7787" font-family="DM Sans,sans-serif">Protocol v1.0</text>
+          <circle cx="480" cy="120" r="14" fill="#1A3680"/><text x="480" y="100" text-anchor="middle" font-size="9" fill="#6B7787" font-family="DM Sans,sans-serif">Protocol v2.0</text>
+          <circle cx="760" cy="120" r="14" fill="#1A3680"/><text x="760" y="100" text-anchor="middle" font-size="9" fill="#0EA5E9" font-family="DM Sans,sans-serif" font-weight="600">Protocol v3.0</text>
+          <!-- USDM nodes (squares) -->
+          <rect x="328" y="192" width="24" height="24" fill="#0EA5E9" rx="3"/><text x="340" y="228" text-anchor="middle" font-size="9" fill="#6B7787" font-family="DM Sans,sans-serif">USDM v1.0</text>
+          <rect x="608" y="192" width="24" height="24" fill="#0EA5E9" rx="3"/><text x="620" y="228" text-anchor="middle" font-size="9" fill="#6B7787" font-family="DM Sans,sans-serif">USDM v2.0</text>
+          <rect x="748" y="302" width="24" height="24" fill="#0EA5E9" rx="3" stroke="#0EA5E9" stroke-width="2" fill-opacity="0.3"/><text x="760" y="340" text-anchor="middle" font-size="9" fill="#0EA5E9" font-family="DM Sans,sans-serif" font-weight="600">USDM v3.0</text>
+          <!-- Correction nodes (diamonds) -->
+          <polygon points="340,302 352,316 340,330 328,316" fill="#B45309"/>
+          <text x="340" y="348" text-anchor="middle" font-size="8" fill="#B45309" font-family="DM Sans,sans-serif">Correction</text>
+          <text x="340" y="358" text-anchor="middle" font-size="8" fill="#B45309" font-family="DM Sans,sans-serif">A. Rao · CT</text>
+          <polygon points="620,302 632,316 620,330 608,316" fill="#B45309"/>
+          <text x="620" y="348" text-anchor="middle" font-size="8" fill="#B45309" font-family="DM Sans,sans-serif">Correction</text>
+          <text x="620" y="358" text-anchor="middle" font-size="8" fill="#B45309" font-family="DM Sans,sans-serif">Dr. Patel · SME</text>
+          <!-- Edge labels -->
+          <text x="265" y="168" font-size="8" fill="#6B7787" font-family="DM Sans,sans-serif">AMENDS</text>
+          <text x="400" y="158" font-size="8" fill="#6B7787" font-family="DM Sans,sans-serif">DERIVED_FROM</text>
+          <text x="355" y="262" font-size="8" fill="#B45309" font-family="DM Sans,sans-serif">CHANGED_BY</text>
+          <!-- Legend -->
+          <circle cx="40" cy="395" r="7" fill="#1A3680"/>
+          <text x="55" y="399" font-size="10" fill="#6B7787" font-family="DM Sans,sans-serif">Protocol node</text>
+          <rect x="120" y="388" width="14" height="14" fill="#0EA5E9" rx="2"/>
+          <text x="140" y="399" font-size="10" fill="#6B7787" font-family="DM Sans,sans-serif">USDM node</text>
+          <polygon points="220,395 228,403 220,411 212,403" fill="#B45309"/>
+          <text x="235" y="399" font-size="10" fill="#6B7787" font-family="DM Sans,sans-serif">Correction</text>
+          <line x1="310" y1="395" x2="350" y2="395" stroke="#0EA5E9" stroke-width="1.5" stroke-dasharray="5,3"/>
+          <text x="358" y="399" font-size="10" fill="#6B7787" font-family="DM Sans,sans-serif">EQUIVALENT_TO</text>
+        </svg>
+        <!-- Controls overlay -->
+        <div style="position:absolute;top:12px;right:12px;background:white;border:1px solid var(--border-subtle);border-radius:8px;padding:12px;font-size:12px;min-width:160px;">
+          <div style="font-weight:700;margin-bottom:8px;color:var(--text-primary);">Filters</div>
+          <label style="display:flex;gap:6px;margin-bottom:4px;color:var(--text-secondary);"><input type="checkbox" checked style="accent-color:var(--brand-accent);"> DERIVED_FROM</label>
+          <label style="display:flex;gap:6px;margin-bottom:4px;color:var(--text-secondary);"><input type="checkbox" checked style="accent-color:var(--brand-accent);"> CHANGED_BY</label>
+          <label style="display:flex;gap:6px;margin-bottom:4px;color:var(--text-secondary);"><input type="checkbox" checked style="accent-color:var(--brand-accent);"> EQUIVALENT_TO</label>
+          <label style="display:flex;gap:6px;color:var(--text-secondary);"><input type="checkbox" style="accent-color:var(--brand-accent);"> CONFLICTS_WITH</label>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Field history view -->
+  <div id="lin-view-field" style="display:none;">
+    <div class="panel">
+      <div class="panel-header">
+        <div class="panel-title">Field History — search for a field path</div>
+      </div>
+      <div style="padding:20px;">
+        <input class="table-search" style="width:100%;max-width:500px;margin-bottom:20px;" placeholder="Study › Population › InclusionCriteria › ELIG-007" value="Study › Population › InclusionCriteria › ELIG-007">
+        <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:16px;">Showing full history for <strong style="color:var(--text-primary);">EligibilityCriterion · ELIG-007</strong></div>
+        <div style="display:flex;flex-direction:column;gap:0;">
+          <div style="display:flex;gap:16px;padding:14px 0;border-bottom:1px solid var(--border-subtle);">
+            <div style="min-width:130px;font-size:11px;font-family:var(--font-mono);color:var(--text-tertiary);padding-top:2px;">Jan 18, 2026</div>
+            <div><span class="badge badge-accent" style="margin-bottom:6px;">MODEL_UPGRADE</span><div style="font-size:13px;color:var(--text-primary);">Re-extracted by Sonnet 4.6 · conf 0.87→0.94 · value unchanged</div></div>
+          </div>
+          <div style="display:flex;gap:16px;padding:14px 0;border-bottom:1px solid var(--border-subtle);">
+            <div style="min-width:130px;font-size:11px;font-family:var(--font-mono);color:var(--text-tertiary);padding-top:2px;">Feb 05, 2025</div>
+            <div><span class="badge badge-warning" style="margin-bottom:6px;">CHANGED_BY</span><div style="font-size:13px;color:var(--text-primary);">Dr. Vikram Patel · population link corrected to POP-01</div></div>
+          </div>
+          <div style="display:flex;gap:16px;padding:14px 0;border-bottom:1px solid var(--border-subtle);">
+            <div style="min-width:130px;font-size:11px;font-family:var(--font-mono);color:var(--text-tertiary);padding-top:2px;">Feb 03, 2025</div>
+            <div><span class="badge badge-info" style="margin-bottom:6px;">MODIFIED</span><div style="font-size:13px;color:var(--text-primary);">Protocol v2.0 — criterion broadened to ECOG 0, 1, or 2</div></div>
+          </div>
+          <div style="display:flex;gap:16px;padding:14px 0;border-bottom:1px solid var(--border-subtle);">
+            <div style="min-width:130px;font-size:11px;font-family:var(--font-mono);color:var(--text-tertiary);padding-top:2px;">Aug 16, 2024</div>
+            <div><span class="badge badge-warning" style="margin-bottom:6px;">CHANGED_BY</span><div style="font-size:13px;color:var(--text-primary);">Anita Rao · CT code C102680 (ECOGPER) added</div></div>
+          </div>
+          <div style="display:flex;gap:16px;padding:14px 0;">
+            <div style="min-width:130px;font-size:11px;font-family:var(--font-mono);color:var(--text-tertiary);padding-top:2px;">Mar 12, 2024</div>
+            <div><span class="badge badge-accent" style="margin-bottom:6px;">INTRODUCED</span><div style="font-size:13px;color:var(--text-primary);">Initial extraction · "ECOG 0 or 1" · conf 0.62</div></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</div>
+</div><!-- /lineage -->
+
+<!-- ══════════ PAGE: QUALITY DASHBOARD ══════════ -->
+<div id="page-quality" class="page">
+<div class="content">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Quality Dashboard</div>
+      <div class="page-subtitle">MaxisAI DDF acceptance criteria — full evidence drill-down · 8 criteria</div>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-secondary btn-sm" onclick="showToast('info','Export','Generating compliance report PDF…')">Export Report</button>
+    </div>
+  </div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+
+    <div class="qd-tile">
+      <div class="qd-criterion" style="color:var(--success);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>1 · Provenance of Accuracy</div>
+      <div class="qd-hero">98.7<span style="font-size:22px;color:var(--text-tertiary);">%</span></div>
+      <div class="qd-sub">field-level accuracy across 47 protocols · 14,832 provenance records</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+        <span class="badge badge-success">↑ +2.3% MoM</span>
+        <span class="badge badge-neutral">Target: ≥95%</span>
+        <span class="badge badge-success">Exceeds target</span>
+      </div>
+      <div class="qd-breakdown">
+        <div class="qd-row"><span class="qd-row-label">Fields with full provenance</span><span class="qd-row-val" style="color:var(--success);">100%</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:100%;background:var(--success);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">High confidence (≥95%)</span><span class="qd-row-val">74.2%</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:74%;background:var(--success);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">Medium confidence (80–94%)</span><span class="qd-row-val">20.1%</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:20%;background:var(--warning);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">Low confidence (&lt;80%)</span><span class="qd-row-val">5.7%</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:6%;background:var(--danger);"></div></div>
+      </div>
+    </div>
+
+    <div class="qd-tile">
+      <div class="qd-criterion" style="color:var(--info);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z"/></svg>2 · Reliability</div>
+      <div class="qd-hero">99.97<span style="font-size:22px;color:var(--text-tertiary);">%</span></div>
+      <div class="qd-sub">platform uptime · SLA target: 99.9% · MTTR 3.2 minutes</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+        <span class="badge badge-success">3× above SLA</span>
+        <span class="badge badge-info">0 P0 incidents</span>
+      </div>
+      <div class="qd-breakdown">
+        <div class="qd-row"><span class="qd-row-label">Uptime (30 days)</span><span class="qd-row-val" style="color:var(--success);">99.97%</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:99.97%;background:var(--success);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">Mean time to recover</span><span class="qd-row-val">3.2 min</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:89%;background:var(--info);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">Successful skill executions</span><span class="qd-row-val">12,841</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:100%;background:var(--success);"></div></div>
+      </div>
+    </div>
+
+    <div class="qd-tile">
+      <div class="qd-criterion" style="color:var(--info);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/><line x1="6" y1="20" x2="6" y2="16"/></svg>3 · Scalability</div>
+      <div class="qd-hero">47<span style="font-size:22px;color:var(--text-tertiary);"> / 200</span></div>
+      <div class="qd-sub">concurrent conversions · P95 throughput 18m end-to-end</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+        <span class="badge badge-success">76% headroom</span>
+        <span class="badge badge-info">Auto-scales on EKS</span>
+      </div>
+      <div class="qd-breakdown">
+        <div class="qd-row"><span class="qd-row-label">Current load</span><span class="qd-row-val">23.5%</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:23.5%;background:var(--info);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">P95 end-to-end</span><span class="qd-row-val">18 min</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:60%;background:var(--success);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">P99 end-to-end</span><span class="qd-row-val">24 min</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:80%;background:var(--success);"></div></div>
+      </div>
+    </div>
+
+    <div class="qd-tile">
+      <div class="qd-criterion" style="color:var(--brand-primary);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M9 12l2 2 4-4"/><circle cx="12" cy="12" r="10"/></svg>4 · Regulatory Compliance</div>
+      <div class="qd-hero">100<span style="font-size:22px;color:var(--text-tertiary);">%</span></div>
+      <div class="qd-sub">audit completeness · GAMP 5 · 21 CFR Part 11 · CSV validated</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+        <span class="badge badge-success">GxP compliant</span>
+        <span class="badge badge-success">CSV validated</span>
+        <span class="badge badge-success">HIPAA</span>
+      </div>
+      <div class="qd-breakdown">
+        <div class="qd-row"><span class="qd-row-label">Audit record completeness</span><span class="qd-row-val" style="color:var(--success);">100%</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:100%;background:var(--success);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">Electronic signature compliance</span><span class="qd-row-val" style="color:var(--success);">100%</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:100%;background:var(--success);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">Data residency (US)</span><span class="qd-row-val" style="color:var(--success);">Confirmed</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:100%;background:var(--brand-primary);"></div></div>
+      </div>
+    </div>
+
+    <div class="qd-tile">
+      <div class="qd-criterion" style="color:var(--success);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>5 · Cost Effectiveness</div>
+      <div class="qd-hero">$147<span style="font-size:22px;color:var(--text-tertiary);"> / protocol</span></div>
+      <div class="qd-sub">total AWS Bedrock spend · -34% vs baseline · target $250</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+        <span class="badge badge-success">↓ -34% vs baseline</span>
+        <span class="badge badge-success">41% under target</span>
+      </div>
+      <div class="qd-breakdown">
+        <div class="qd-row"><span class="qd-row-label">Bedrock token cost</span><span class="qd-row-val">$89 / protocol</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:60%;background:var(--success);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">Infrastructure cost</span><span class="qd-row-val">$41 / protocol</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:28%;background:var(--info);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">HITL reviewer time cost</span><span class="qd-row-val">$17 / protocol</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:11%;background:var(--warning);"></div></div>
+      </div>
+    </div>
+
+    <div class="qd-tile">
+      <div class="qd-criterion" style="color:var(--brand-accent);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polygon points="13 2 3 14 12 14 11 22 21 10 12 10 13 2"/></svg>6 · Performance</div>
+      <div class="qd-hero">18<span style="font-size:22px;color:var(--text-tertiary);">m P95</span></div>
+      <div class="qd-sub">end-to-end processing · target 30m · all skills under SLA</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+        <span class="badge badge-success">40% under target</span>
+        <span class="badge badge-info">P99: 24m</span>
+      </div>
+      <div class="qd-breakdown">
+        <div class="qd-row"><span class="qd-row-label">extract_eligibility</span><span class="qd-row-val">4.2m avg</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:42%;background:var(--brand-accent);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">extract_estimands</span><span class="qd-row-val">6.1m avg</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:61%;background:var(--brand-accent);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">validate_conformance</span><span class="qd-row-val">2.8m avg</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:28%;background:var(--success);"></div></div>
+      </div>
+    </div>
+
+    <div class="qd-tile">
+      <div class="qd-criterion" style="color:var(--brand-accent);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M17 21v-2a4 4 0 0 0-4-4H5a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>7 · User Experience</div>
+      <div class="qd-hero">4.2<span style="font-size:22px;color:var(--text-tertiary);">h / study</span></div>
+      <div class="qd-sub">average reviewer time per study · -47% vs first month baseline</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+        <span class="badge badge-success">↓ -47% MoM</span>
+        <span class="badge badge-accent">7 active reviewers</span>
+      </div>
+      <div class="qd-breakdown">
+        <div class="qd-row"><span class="qd-row-label">Auto-accept rate</span><span class="qd-row-val" style="color:var(--success);">84.7%</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:84.7%;background:var(--success);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">Items reviewed per hour</span><span class="qd-row-val">22</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:73%;background:var(--brand-accent);"></div></div>
+        <div class="qd-row"><span class="qd-row-label">Keyboard shortcut adoption</span><span class="qd-row-val">78%</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:78%;background:var(--info);"></div></div>
+      </div>
+    </div>
+
+    <div class="qd-tile">
+      <div class="qd-criterion" style="color:var(--info);"><svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="6" y1="3" x2="6" y2="15"/><circle cx="18" cy="6" r="3"/><circle cx="6" cy="18" r="3"/><path d="M18 9a9 9 0 0 1-9 9"/></svg>8 · Integrateability</div>
+      <div class="qd-hero">10<span style="font-size:22px;color:var(--text-tertiary);"> / 10</span></div>
+      <div class="qd-sub">all integrations healthy · 98.4% event delivery · zero missed webhooks</div>
+      <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;flex-wrap:wrap;">
+        <span class="badge badge-success">All systems green</span>
+        <span class="badge badge-info">REST + Events + Files</span>
+      </div>
+      <div class="qd-breakdown">
+        <div class="qd-row"><span class="qd-row-label">Veeva Vault eTMF</span><span class="qd-row-val" style="color:var(--success);">● Live</span></div>
+        <div class="qd-row"><span class="qd-row-label">ClinicalTrials.gov PRS</span><span class="qd-row-val" style="color:var(--success);">● Live</span></div>
+        <div class="qd-row"><span class="qd-row-label">Event bus delivery rate</span><span class="qd-row-val">98.4%</span></div>
+        <div class="qd-bar-wrap"><div class="qd-bar-fill" style="width:98.4%;background:var(--success);"></div></div>
+      </div>
+    </div>
+  </div>
+</div>
+</div><!-- /quality -->
+
+
+<!-- ══════════ PAGE: PROVENANCE ══════════ -->
+<div id="page-provenance" class="page">
+<div class="content">
+  <div class="page-header">
+    <div>
+      <div class="page-title">Provenance</div>
+      <div class="page-subtitle">Field-level extraction records · source spans · model metadata · full audit trail</div>
+    </div>
+    <div class="page-header-actions">
+      <button class="btn btn-secondary btn-sm" onclick="showToast('info','Export','Generating PROV-O bundle…')">Export PROV-O</button>
+    </div>
+  </div>
+
+  <!-- Summary tiles -->
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
+    <div style="background:var(--surface-base);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:18px;">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);font-weight:700;margin-bottom:8px;">Fields with Provenance</div>
+      <div style="font-family:var(--font-display);font-size:32px;font-weight:600;color:var(--brand-ink);">100<span style="font-size:16px;color:var(--text-tertiary);">%</span></div>
+      <div style="font-size:12px;color:var(--success);margin-top:4px;">14,832 records</div>
+    </div>
+    <div style="background:var(--surface-base);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:18px;">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);font-weight:700;margin-bottom:8px;">Avg Confidence</div>
+      <div style="font-family:var(--font-display);font-size:32px;font-weight:600;color:var(--brand-ink);">0.91</div>
+      <div style="font-size:12px;color:var(--success);margin-top:4px;">↑ +0.04 vs last month</div>
+    </div>
+    <div style="background:var(--surface-base);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:18px;">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);font-weight:700;margin-bottom:8px;">Reviewer Corrections</div>
+      <div style="font-family:var(--font-display);font-size:32px;font-weight:600;color:var(--brand-ink);">3,471</div>
+      <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px;">all recorded with reason</div>
+    </div>
+    <div style="background:var(--surface-base);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:18px;">
+      <div style="font-size:11px;text-transform:uppercase;letter-spacing:0.08em;color:var(--text-tertiary);font-weight:700;margin-bottom:8px;">PROV-O Exports</div>
+      <div style="font-family:var(--font-display);font-size:32px;font-weight:600;color:var(--brand-ink);">216</div>
+      <div style="font-size:12px;color:var(--text-tertiary);margin-top:4px;">W3C compliant bundles</div>
+    </div>
+  </div>
+
+  <div class="table-card">
+    <div class="panel-header">
+      <div class="panel-title">Provenance audit explorer</div>
+      <div style="display:flex;gap:8px;">
+        <select style="font-size:12px;height:30px;border:1px solid var(--border-subtle);border-radius:4px;padding:0 8px;font-family:var(--font-body);color:var(--text-secondary);">
+          <option>All studies</option>
+          <option>NCT05847219</option>
+          <option>NCT05912047</option>
+        </select>
+        <select style="font-size:12px;height:30px;border:1px solid var(--border-subtle);border-radius:4px;padding:0 8px;font-family:var(--font-body);color:var(--text-secondary);">
+          <option>All confidence levels</option>
+          <option>High (≥95%)</option>
+          <option>Medium (80–94%)</option>
+          <option>Low (&lt;80%)</option>
+        </select>
+      </div>
+    </div>
+    <table class="data-table">
+      <thead><tr><th>USDM Field</th><th>Study</th><th>Skill</th><th>Model</th><th>Confidence</th><th>Source Section</th><th>Generated</th><th>Status</th></tr></thead>
+      <tbody>
+        <tr onclick="showToast('info','Provenance drawer','Full provenance drawer would open for ELIG-007.')">
+          <td><span class="mono">ELIG-007</span></td><td><span class="mono">NCT05847219</span></td><td><span class="mono" style="font-size:11px;">extract_eligibility v3.2.1</span></td><td><span class="mono" style="font-size:11px;">Sonnet 4.6</span></td>
+          <td><span class="badge badge-warning">0.87</span></td><td>§ 4.2.1 IC-04</td><td style="font-size:11px;color:var(--text-tertiary);">Apr 30</td><td><span class="badge badge-warning">In Review</span></td>
+        </tr>
+        <tr>
+          <td><span class="mono">ELIG-001</span></td><td><span class="mono">NCT05847219</span></td><td><span class="mono" style="font-size:11px;">extract_eligibility v3.2.1</span></td><td><span class="mono" style="font-size:11px;">Sonnet 4.6</span></td>
+          <td><span class="badge badge-success">0.97</span></td><td>§ 4.2.1 IC-01</td><td style="font-size:11px;color:var(--text-tertiary);">Apr 30</td><td><span class="badge badge-success">Accepted</span></td>
+        </tr>
+        <tr>
+          <td><span class="mono">ENDP-OS</span></td><td><span class="mono">NCT05847219</span></td><td><span class="mono" style="font-size:11px;">extract_estimands v2.1.0</span></td><td><span class="mono" style="font-size:11px;">Sonnet 4.6</span></td>
+          <td><span class="badge badge-success">0.94</span></td><td>§ 5.1 Primary</td><td style="font-size:11px;color:var(--text-tertiary);">Apr 30</td><td><span class="badge badge-success">Accepted</span></td>
+        </tr>
+        <tr>
+          <td><span class="mono">ARM-001</span></td><td><span class="mono">NCT05912047</span></td><td><span class="mono" style="font-size:11px;">extract_design v1.8.2</span></td><td><span class="mono" style="font-size:11px;">Sonnet 4.6</span></td>
+          <td><span class="badge badge-success">0.96</span></td><td>§ 4.1 Design</td><td style="font-size:11px;color:var(--text-tertiary);">Apr 28</td><td><span class="badge badge-success">Accepted</span></td>
+        </tr>
+        <tr>
+          <td><span class="mono">POP-01</span></td><td><span class="mono">NCT06281547</span></td><td><span class="mono" style="font-size:11px;">extract_population v2.4.1</span></td><td><span class="mono" style="font-size:11px;">Sonnet 4.6</span></td>
+          <td><span class="badge badge-danger">0.61</span></td><td>§ 4.2 Population</td><td style="font-size:11px;color:var(--text-tertiary);">Apr 29</td><td><span class="badge badge-danger">CRS Failed</span></td>
+        </tr>
+      </tbody>
+    </table>
+    <div style="padding:12px 20px;border-top:1px solid var(--border-subtle);font-size:12px;color:var(--text-tertiary);">Showing 5 of 14,832 records · <a href="#" style="color:var(--text-link);">Load more</a></div>
+  </div>
+</div>
+</div><!-- /provenance -->
+
+<!-- ══════════ PAGE: KNOWLEDGE GRAPH ══════════ -->
+<div id="page-knowledge" class="page">
+<div style="height:100%;display:flex;flex-direction:column;">
+  <div style="padding:20px 28px 16px;flex-shrink:0;">
+    <div class="page-title">Knowledge Graph</div>
+    <div class="page-subtitle" style="margin-top:4px;">Standards + sponsor knowledge · 14,832 nodes · 38,471 edges · 47 studies · compounding asset</div>
+  </div>
+  <div style="flex:1;overflow:hidden;">
+    <div class="kg-wrap" style="height:100%;">
+      <div class="kg-filters">
+        <div class="kg-filter-section">
+          <div class="kg-filter-title">Standards</div>
+          <label class="kg-filter-item"><input type="checkbox" checked> USDM classes</label>
+          <label class="kg-filter-item"><input type="checkbox" checked> ICH M11 sections</label>
+          <label class="kg-filter-item"><input type="checkbox" checked> CDISC BCs</label>
+          <label class="kg-filter-item"><input type="checkbox"> CDASH variables</label>
+          <label class="kg-filter-item"><input type="checkbox"> SDTM targets</label>
+          <label class="kg-filter-item"><input type="checkbox"> E9(R1) estimands</label>
+        </div>
+        <div class="kg-filter-section">
+          <div class="kg-filter-title">Sponsor</div>
+          <label class="kg-filter-item"><input type="checkbox" checked> Converted studies</label>
+          <label class="kg-filter-item"><input type="checkbox" checked> Reused endpoints</label>
+          <label class="kg-filter-item"><input type="checkbox"> Sponsor BC variants</label>
+          <label class="kg-filter-item"><input type="checkbox"> TA templates</label>
+        </div>
+        <div class="kg-filter-section">
+          <div class="kg-filter-title">Crosswalks</div>
+          <label class="kg-filter-item"><input type="checkbox" checked> Standards ↔ Sponsor</label>
+        </div>
+        <div class="kg-stats">
+          <div class="kg-stat"><span class="kg-stat-label">Total nodes</span><span class="kg-stat-val">14,832</span></div>
+          <div class="kg-stat"><span class="kg-stat-label">Total edges</span><span class="kg-stat-val">38,471</span></div>
+          <div class="kg-stat"><span class="kg-stat-label">Studies</span><span class="kg-stat-val">47</span></div>
+          <div class="kg-stat"><span class="kg-stat-label">BCs reused</span><span class="kg-stat-val">2,341</span></div>
+          <div class="kg-stat"><span class="kg-stat-label">TA patterns</span><span class="kg-stat-val">8</span></div>
+        </div>
+        <button class="btn btn-accent btn-sm" style="width:100%;margin-top:14px;" onclick="showToast('info','Growth animation','Animating knowledge graph growth from month 1 to today…')">▶ Show growth over time</button>
+      </div>
+      <div class="kg-canvas">
+        <svg viewBox="0 0 800 500" style="width:100%;height:100%;">
+          <!-- Standards sub-graph (left) -->
+          <text x="80" y="28" font-size="11" fill="#6B7787" font-family="DM Sans,sans-serif" font-weight="700" text-transform="uppercase">STANDARDS</text>
+          <!-- USDM classes -->
+          <circle cx="120" cy="120" r="18" fill="#1A3680" opacity="0.9"/>
+          <text x="120" y="124" text-anchor="middle" font-size="8" fill="white" font-family="Fira Code,monospace" font-weight="600">USDM</text>
+          <circle cx="200" cy="80" r="14" fill="#1A3680" opacity="0.7"/>
+          <text x="200" y="84" text-anchor="middle" font-size="7" fill="white" font-family="Fira Code,monospace">M11</text>
+          <circle cx="70" cy="200" r="12" fill="#1A3680" opacity="0.6"/>
+          <text x="70" y="204" text-anchor="middle" font-size="7" fill="white" font-family="Fira Code,monospace">E9(R1)</text>
+          <circle cx="180" cy="190" r="10" fill="#1E5A9C" opacity="0.8"/>
+          <text x="180" y="194" text-anchor="middle" font-size="7" fill="white" font-family="Fira Code,monospace">CDASH</text>
+          <circle cx="100" cy="280" r="10" fill="#1E5A9C" opacity="0.7"/>
+          <text x="100" y="284" text-anchor="middle" font-size="7" fill="white" font-family="Fira Code,monospace">SDTM</text>
+          <circle cx="220" cy="260" r="8" fill="#1A3680" opacity="0.5"/>
+          <text x="220" y="264" text-anchor="middle" font-size="6" fill="white" font-family="Fira Code,monospace">CRS</text>
+          <!-- BC nodes -->
+          <circle cx="50" cy="340" r="7" fill="#0EA5E9"/>
+          <circle cx="90" cy="360" r="7" fill="#0EA5E9"/>
+          <circle cx="140" cy="345" r="7" fill="#0EA5E9"/>
+          <circle cx="70" cy="390" r="7" fill="#0EA5E9"/>
+          <circle cx="170" cy="310" r="7" fill="#0EA5E9"/>
+          <circle cx="200" cy="370" r="7" fill="#0EA5E9"/>
+          <text x="120" y="415" text-anchor="middle" font-size="9" fill="#0EA5E9" font-family="DM Sans,sans-serif">CDISC BCs (2,341)</text>
+          <!-- Edges between standards -->
+          <line x1="120" y1="138" x2="200" y2="94" stroke="#CBD3DC" stroke-width="1"/>
+          <line x1="120" y1="138" x2="70" y2="200" stroke="#CBD3DC" stroke-width="1"/>
+          <line x1="120" y1="138" x2="180" y2="190" stroke="#CBD3DC" stroke-width="1"/>
+          <line x1="70" y1="212" x2="100" y2="280" stroke="#CBD3DC" stroke-width="1"/>
+          <line x1="180" y1="200" x2="220" y2="260" stroke="#CBD3DC" stroke-width="1"/>
+          <line x1="100" y1="292" x2="50" y2="340" stroke="#E5E9EE" stroke-width="1"/>
+          <line x1="100" y1="292" x2="90" y2="360" stroke="#E5E9EE" stroke-width="1"/>
+          <line x1="100" y1="292" x2="140" y2="345" stroke="#E5E9EE" stroke-width="1"/>
+
+          <!-- Sponsor sub-graph (right) -->
+          <text x="520" y="28" font-size="11" fill="#6B7787" font-family="DM Sans,sans-serif" font-weight="700">SPONSOR (PFIZER)</text>
+          <!-- Study nodes -->
+          <circle cx="620" cy="100" r="18" fill="#0EA5E9" opacity="0.9"/>
+          <text x="620" y="96" text-anchor="middle" font-size="7" fill="white" font-family="Fira Code,monospace">NCT058</text>
+          <text x="620" y="106" text-anchor="middle" font-size="7" fill="white" font-family="Fira Code,monospace">47219</text>
+          <circle cx="700" cy="150" r="14" fill="#0EA5E9" opacity="0.7"/>
+          <text x="700" y="154" text-anchor="middle" font-size="7" fill="white" font-family="Fira Code,monospace">CV-2025</text>
+          <circle cx="550" cy="170" r="14" fill="#0EA5E9" opacity="0.7"/>
+          <text x="550" y="174" text-anchor="middle" font-size="7" fill="white" font-family="Fira Code,monospace">Vacc-26</text>
+          <circle cx="660" cy="230" r="12" fill="#0EA5E9" opacity="0.6"/>
+          <circle cx="590" cy="270" r="10" fill="#0EA5E9" opacity="0.5"/>
+          <circle cx="720" cy="270" r="10" fill="#0EA5E9" opacity="0.5"/>
+          <!-- Endpoint reuse nodes -->
+          <circle cx="630" cy="340" r="8" fill="#B45309"/>
+          <circle cx="660" cy="360" r="8" fill="#B45309"/>
+          <circle cx="600" cy="365" r="8" fill="#B45309"/>
+          <text x="660" y="395" text-anchor="middle" font-size="9" fill="#B45309" font-family="DM Sans,sans-serif">Reused endpoints (412)</text>
+          <!-- Edges sponsor -->
+          <line x1="620" y1="118" x2="700" y2="150" stroke="#E5E9EE" stroke-width="1.5"/>
+          <line x1="620" y1="118" x2="550" y2="170" stroke="#E5E9EE" stroke-width="1.5"/>
+          <line x1="700" y1="164" x2="660" y2="230" stroke="#E5E9EE" stroke-width="1"/>
+          <line x1="550" y1="184" x2="590" y2="270" stroke="#E5E9EE" stroke-width="1"/>
+          <line x1="660" y1="242" x2="630" y2="340" stroke="#E5E9EE" stroke-width="1"/>
+
+          <!-- Crosswalk edges (center) -->
+          <line x1="220" y1="130" x2="550" y2="140" stroke="#0EA5E9" stroke-width="1.5" stroke-dasharray="6,4"/>
+          <line x1="200" y1="200" x2="580" y2="240" stroke="#0EA5E9" stroke-width="1" stroke-dasharray="6,4"/>
+          <line x1="140" y1="310" x2="600" y2="340" stroke="#0EA5E9" stroke-width="1" stroke-dasharray="6,4"/>
+          <text x="400" y="145" text-anchor="middle" font-size="9" fill="#0EA5E9" font-family="DM Sans,sans-serif">Standards ↔ Sponsor crosswalks</text>
+
+          <!-- Search overlay -->
+          <rect x="290" y="210" width="220" height="60" rx="8" fill="white" stroke="#E5E9EE" stroke-width="1" filter="url(#shadow)"/>
+          <text x="400" y="234" text-anchor="middle" font-size="11" fill="#6B7787" font-family="DM Sans,sans-serif">Type to search knowledge graph…</text>
+          <text x="400" y="254" text-anchor="middle" font-size="10" fill="#0EA5E9" font-family="Fira Code,monospace">14,832 nodes · 38,471 edges</text>
+        </svg>
+      </div>
+    </div>
+  </div>
+</div>
+</div><!-- /knowledge -->
+
+<!-- ══════════ STUB PAGES ══════════ -->
+<div id="page-adjudications" class="page">
+<div class="content">
+  <div class="page-title">Adjudications</div>
+  <div class="page-subtitle" style="margin-top:6px;margin-bottom:28px;">3 open disagreements requiring SME decision</div>
+  <div style="display:flex;flex-direction:column;gap:12px;">
+    <div style="background:var(--surface-base);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:20px;display:flex;align-items:center;gap:16px;">
+      <div style="width:40px;height:40px;background:var(--danger-soft);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;color:var(--danger);font-size:18px;flex-shrink:0;">⚖</div>
+      <div style="flex:1;"><div style="font-weight:600;color:var(--text-primary);">ELIG-012 classification conflict · NCT05768423</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px;">Sarah Chen (CR) and Anita Rao (DM) disagree on inclusion status · awaiting Dr. Patel</div></div>
+      <span class="badge badge-danger">Open</span>
+      <button class="btn btn-primary btn-sm" onclick="showToast('info','Adjudication opened','ELIG-012 adjudication opened for Dr. Patel.')">Adjudicate</button>
+    </div>
+    <div style="background:var(--surface-base);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:20px;display:flex;align-items:center;gap:16px;">
+      <div style="width:40px;height:40px;background:var(--warning-soft);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;color:var(--warning);font-size:18px;flex-shrink:0;">⚖</div>
+      <div style="flex:1;"><div style="font-weight:600;color:var(--text-primary);">Estimand intercurrent event handling · NCT05847219</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px;">ENDP-OS intercurrent event strategy disputed · ICH E9(R1) interpretation needed</div></div>
+      <span class="badge badge-warning">Open</span>
+      <button class="btn btn-secondary btn-sm">Adjudicate</button>
+    </div>
+    <div style="background:var(--surface-base);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:20px;display:flex;align-items:center;gap:16px;">
+      <div style="width:40px;height:40px;background:var(--warning-soft);border-radius:var(--radius-md);display:flex;align-items:center;justify-content:center;color:var(--warning);font-size:18px;flex-shrink:0;">⚖</div>
+      <div style="flex:1;"><div style="font-weight:600;color:var(--text-primary);">BC reuse conflict · NCT06281547 · HEMG-BC-004</div><div style="font-size:12px;color:var(--text-tertiary);margin-top:2px;">Sponsor variant vs. CDISC standard — reviewer disagreement on preferred BC</div></div>
+      <span class="badge badge-warning">Open</span>
+      <button class="btn btn-secondary btn-sm">Adjudicate</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<div id="page-audit" class="page">
+<div class="content">
+  <div class="page-title" style="margin-bottom:6px;">Audit Trail</div>
+  <div class="page-subtitle" style="margin-bottom:24px;">Append-only immutable event ledger · Merkle-chained · all actors and actions recorded</div>
+  <div class="table-card">
+    <div class="table-toolbar">
+      <input class="table-search" placeholder="Search by actor, action, target…"/>
+      <div class="table-actions"><button class="btn btn-secondary btn-sm">Export CSV</button><button class="btn btn-secondary btn-sm">Export JSON</button></div>
+    </div>
+    <table class="data-table">
+      <thead><tr><th>Timestamp</th><th>Actor</th><th>Action</th><th>Target</th><th>Result</th><th>Event Hash</th></tr></thead>
+      <tbody>
+        <tr><td class="mono" style="font-size:11px;">2026-04-30 14:23:41Z</td><td>System</td><td><span class="badge badge-accent">EXTRACTED</span></td><td class="mono">ELIG-007 · CONV-2026-04-127</td><td><span class="badge badge-warning">Conf 0.87</span></td><td class="mono" style="font-size:10px;">a4f2b…3c9d</td></tr>
+        <tr><td class="mono" style="font-size:11px;">2026-04-30 14:18:22Z</td><td>Anita Rao</td><td><span class="badge badge-warning">CORRECTED</span></td><td class="mono">CT code · ELIG-001</td><td><span class="badge badge-success">Accepted</span></td><td class="mono" style="font-size:10px;">b7e1c…8f2a</td></tr>
+        <tr><td class="mono" style="font-size:11px;">2026-04-30 13:44:18Z</td><td>System</td><td><span class="badge badge-info">VALIDATED</span></td><td class="mono">CONV-2026-04-127 · CRS</td><td><span class="badge badge-success">Pass</span></td><td class="mono" style="font-size:10px;">c9d4e…1a3b</td></tr>
+        <tr><td class="mono" style="font-size:11px;">2026-04-29 09:12:05Z</td><td>Arun Goel</td><td><span class="badge badge-neutral">VIEWED</span></td><td class="mono">Quality Dashboard</td><td><span class="badge badge-neutral">Read-only</span></td><td class="mono" style="font-size:10px;">d2f8a…6e7c</td></tr>
+        <tr><td class="mono" style="font-size:11px;">2026-04-28 16:55:30Z</td><td>System</td><td><span class="badge badge-accent">MODEL_PROMO</span></td><td class="mono">Sonnet 4.5 → 4.6 · Production</td><td><span class="badge badge-success">Promoted</span></td><td class="mono" style="font-size:10px;">e5b3c…9d1f</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+<div id="page-docstudio" class="page">
+<div class="content">
+  <div class="page-title" style="margin-bottom:6px;">Doc Studio</div>
+  <div class="page-subtitle" style="margin-bottom:24px;">Downstream artifact generation · M11 round-trip diff · protocol regeneration</div>
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;">
+    <div style="background:var(--surface-base);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:20px;">
+      <div style="font-weight:600;margin-bottom:4px;color:var(--text-primary);">ICH M11 Document</div>
+      <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:16px;">NCT05847219 · v3.0 · Generated Jan 18, 2026</div>
+      <div style="display:flex;flex-direction:column;gap:8px;">
+        <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border-subtle);"><span>Sections generated</span><span class="fw-600" style="color:var(--success);">47 / 47</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;border-bottom:1px solid var(--border-subtle);"><span>Semantic equivalence</span><span class="fw-600" style="color:var(--success);">100%</span></div>
+        <div style="display:flex;justify-content:space-between;font-size:13px;padding:8px 0;"><span>Round-trip status</span><span class="badge badge-success">Pass</span></div>
+      </div>
+      <button class="btn btn-primary btn-sm" style="margin-top:16px;width:100%;" onclick="showToast('success','Downloaded','M11 document downloading…')">Download M11 PDF</button>
+    </div>
+    <div style="background:var(--surface-base);border:1px solid var(--border-subtle);border-radius:var(--radius-lg);padding:20px;">
+      <div style="font-weight:600;margin-bottom:4px;color:var(--text-primary);">USDM JSON Export</div>
+      <div style="font-size:12px;color:var(--text-tertiary);margin-bottom:16px;">CDISC USDM v4.0 compliant · NCT05847219</div>
+      <pre class="json-block" style="max-height:140px;overflow:auto;font-size:11px;"><span class="json-key">"study"</span>: {
+  <span class="json-key">"id"</span>: <span class="json-str">"NCT05847219"</span>,
+  <span class="json-key">"title"</span>: <span class="json-str">"Onc-2026 Phase 2 NSCLC"</span>,
+  <span class="json-key">"usdmVersion"</span>: <span class="json-str">"4.0"</span>,
+  <span class="json-key">"populations"</span>: [...],
+  <span class="json-key">"objectives"</span>: [...]
+}</pre>
+      <button class="btn btn-secondary btn-sm" style="margin-top:12px;width:100%;" onclick="showToast('success','Downloaded','USDM JSON downloading…')">Download USDM JSON</button>
+    </div>
+  </div>
+</div>
+</div>
+
+<div id="page-integrations" class="page">
+<div class="content">
+  <div class="page-title" style="margin-bottom:6px;">Integrations</div>
+  <div class="page-subtitle" style="margin-bottom:24px;">All integration health · REST API · Event Bus · Webhooks · File Drop</div>
+  <div style="display:grid;grid-template-columns:repeat(4,1fr);gap:14px;margin-bottom:20px;">
+    <div style="background:var(--success-soft);border:1px solid rgba(19,119,82,0.2);border-radius:var(--radius-lg);padding:18px;text-align:center;"><div style="font-size:24px;margin-bottom:6px;">✓</div><div style="font-weight:600;color:var(--success);">REST API</div><div style="font-size:12px;color:var(--text-tertiary);">98.4% uptime</div></div>
+    <div style="background:var(--success-soft);border:1px solid rgba(19,119,82,0.2);border-radius:var(--radius-lg);padding:18px;text-align:center;"><div style="font-size:24px;margin-bottom:6px;">✓</div><div style="font-weight:600;color:var(--success);">Event Bus</div><div style="font-size:12px;color:var(--text-tertiary);">99.1% delivery</div></div>
+    <div style="background:var(--success-soft);border:1px solid rgba(19,119,82,0.2);border-radius:var(--radius-lg);padding:18px;text-align:center;"><div style="font-size:24px;margin-bottom:6px;">✓</div><div style="font-weight:600;color:var(--success);">Webhooks</div><div style="font-size:12px;color:var(--text-tertiary);">Zero missed</div></div>
+    <div style="background:var(--success-soft);border:1px solid rgba(19,119,82,0.2);border-radius:var(--radius-lg);padding:18px;text-align:center;"><div style="font-size:24px;margin-bottom:6px;">✓</div><div style="font-weight:600;color:var(--success);">File Drop</div><div style="font-size:12px;color:var(--text-tertiary);">S3-compatible</div></div>
+  </div>
+  <div class="table-card">
+    <div class="panel-header"><div class="panel-title">Connectors</div><button class="btn btn-accent btn-sm" onclick="showToast('success','Test complete','All 6 connectors returned green in 1.4s.')">Run all integration tests</button></div>
+    <table class="data-table">
+      <thead><tr><th>Connector</th><th>Status</th><th>Last tested</th><th>Latency</th><th>Actions</th></tr></thead>
+      <tbody>
+        <tr><td>Veeva Vault eTMF</td><td><span class="badge badge-success">● Live</span></td><td class="mono" style="font-size:11px;">2026-04-30 13:00Z</td><td>142ms</td><td><button class="btn btn-secondary btn-sm" onclick="showToast('success','Test passed','Veeva Vault eTMF: 200 OK in 142ms.')">Test</button></td></tr>
+        <tr><td>Medidata Rave</td><td><span class="badge badge-success">● Live</span></td><td class="mono" style="font-size:11px;">2026-04-30 13:00Z</td><td>198ms</td><td><button class="btn btn-secondary btn-sm" onclick="showToast('success','Test passed','Medidata Rave: 200 OK in 198ms.')">Test</button></td></tr>
+        <tr><td>ClinicalTrials.gov PRS</td><td><span class="badge badge-success">● Live</span></td><td class="mono" style="font-size:11px;">2026-04-30 13:00Z</td><td>312ms</td><td><button class="btn btn-secondary btn-sm">Test</button></td></tr>
+        <tr><td>EU CTIS</td><td><span class="badge badge-success">● Live</span></td><td class="mono" style="font-size:11px;">2026-04-30 13:00Z</td><td>441ms</td><td><button class="btn btn-secondary btn-sm">Test</button></td></tr>
+        <tr><td>Oracle InForm</td><td><span class="badge badge-warning">⚠ Degraded</span></td><td class="mono" style="font-size:11px;">2026-04-30 12:45Z</td><td>1,240ms</td><td><button class="btn btn-secondary btn-sm">Test</button></td></tr>
+        <tr><td>Veeva EDC</td><td><span class="badge badge-success">● Live</span></td><td class="mono" style="font-size:11px;">2026-04-30 13:00Z</td><td>221ms</td><td><button class="btn btn-secondary btn-sm">Test</button></td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+<div id="page-models" class="page">
+<div class="content">
+  <div class="page-title" style="margin-bottom:6px;">Models &amp; Skills</div>
+  <div class="page-subtitle" style="margin-bottom:24px;">Production model registry · skill versions · eval set performance</div>
+  <div class="table-card">
+    <div class="panel-header"><div class="panel-title">Model registry</div></div>
+    <table class="data-table">
+      <thead><tr><th>Model</th><th>Status</th><th>Promoted</th><th>Eval score</th><th>Skills</th><th>Conversions</th></tr></thead>
+      <tbody>
+        <tr><td><span class="mono">claude-sonnet-4-6</span></td><td><span class="badge badge-success">● Production</span></td><td class="mono" style="font-size:11px;">2026-04-28</td><td><span class="badge badge-success">94.2%</span></td><td>12</td><td>127</td></tr>
+        <tr><td><span class="mono">claude-sonnet-4-5</span></td><td><span class="badge badge-neutral">Retired</span></td><td class="mono" style="font-size:11px;">2025-09-01</td><td><span class="badge badge-info">91.0%</span></td><td>12</td><td>388</td></tr>
+        <tr><td><span class="mono">claude-opus-4-7</span></td><td><span class="badge badge-accent">Canary 5%</span></td><td class="mono" style="font-size:11px;">2026-04-30</td><td><span class="badge badge-success">96.8%</span></td><td>12</td><td>8</td></tr>
+      </tbody>
+    </table>
+  </div>
+  <div class="table-card" style="margin-top:16px;">
+    <div class="panel-header"><div class="panel-title">Skill registry</div></div>
+    <table class="data-table">
+      <thead><tr><th>Skill</th><th>Version</th><th>Avg confidence</th><th>P95 latency</th><th>USDM targets</th></tr></thead>
+      <tbody>
+        <tr><td class="mono">extract_eligibility</td><td class="mono">v3.2.1</td><td><span class="badge badge-success">0.91</span></td><td>4.2m</td><td>EligibilityCriterion, PopulationCriterion</td></tr>
+        <tr><td class="mono">extract_estimands</td><td class="mono">v2.1.0</td><td><span class="badge badge-success">0.89</span></td><td>6.1m</td><td>Objective, Endpoint, Estimand</td></tr>
+        <tr><td class="mono">extract_design</td><td class="mono">v1.8.2</td><td><span class="badge badge-success">0.94</span></td><td>3.1m</td><td>StudyArm, StudyEpoch, StudyCell</td></tr>
+        <tr><td class="mono">validate_conformance</td><td class="mono">v4.0.1</td><td>—</td><td>2.8m</td><td>All (CRS validator)</td></tr>
+        <tr><td class="mono">generate_m11</td><td class="mono">v1.4.0</td><td>—</td><td>5.4m</td><td>All (M11 generator)</td></tr>
+      </tbody>
+    </table>
+  </div>
+</div>
+</div>
+
+    </div><!-- /pages -->
+  </div><!-- /main -->
+</div><!-- /app -->
+</div><!-- /screen-app -->
+
+
+<!-- ══════════ COMMAND PALETTE ══════════ -->
+<div id="cmd-overlay" class="cmd-overlay hidden" onclick="if(event.target===this)closeCmd()">
+  <div class="cmd-modal">
+    <div class="cmd-input-wrap">
+      <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" style="color:var(--text-tertiary);flex-shrink:0;"><circle cx="11" cy="11" r="8"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+      <input id="cmd-input" class="cmd-input" placeholder="Search studies, actions, pages…" oninput="filterCmd(this.value)">
+      <span class="kbd">esc</span>
+    </div>
+    <div class="cmd-results">
+      <div class="cmd-section">
+        <div class="cmd-section-title">Go to page</div>
+        <div class="cmd-item" onclick="nav('dashboard',null);closeCmd()"><div class="cmd-item-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brand-accent)" stroke-width="1.75"><rect x="3" y="3" width="7" height="9"/><rect x="14" y="3" width="7" height="5"/></svg></div><div><div class="cmd-item-label">Dashboard</div><div class="cmd-item-meta">Executive overview · 8 criteria</div></div><span class="cmd-item-kbd">G D</span></div>
+        <div class="cmd-item" onclick="nav('workbench',null);closeCmd()"><div class="cmd-item-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brand-accent)" stroke-width="1.75"><polyline points="9 11 12 14 22 4"/></svg></div><div><div class="cmd-item-label">Reviewer Workbench</div><div class="cmd-item-meta">CONV-2026-04-127 · 47 flagged</div></div><span class="cmd-item-kbd">G W</span></div>
+        <div class="cmd-item" onclick="nav('lineage',null);closeCmd()"><div class="cmd-item-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brand-accent)" stroke-width="1.75"><circle cx="6" cy="6" r="3"/><circle cx="18" cy="6" r="3"/><circle cx="12" cy="18" r="3"/></svg></div><div><div class="cmd-item-label">Lineage Explorer</div><div class="cmd-item-meta">Protocol + USDM version history</div></div><span class="cmd-item-kbd">G L</span></div>
+        <div class="cmd-item" onclick="nav('quality',null);closeCmd()"><div class="cmd-item-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brand-accent)" stroke-width="1.75"><line x1="12" y1="20" x2="12" y2="10"/><line x1="18" y1="20" x2="18" y2="4"/></svg></div><div><div class="cmd-item-label">Quality Dashboard</div><div class="cmd-item-meta">All 8 MaxisAI DDF acceptance criteria</div></div><span class="cmd-item-kbd">G Q</span></div>
+        <div class="cmd-item" onclick="nav('knowledge',null);closeCmd()"><div class="cmd-item-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="var(--brand-accent)" stroke-width="1.75"><circle cx="5" cy="5" r="2"/><circle cx="19" cy="5" r="2"/><circle cx="12" cy="12" r="2"/></svg></div><div><div class="cmd-item-label">Knowledge Graph</div><div class="cmd-item-meta">14,832 nodes · standards + sponsor</div></div><span class="cmd-item-kbd">G K</span></div>
+      </div>
+      <div class="cmd-section">
+        <div class="cmd-section-title">Studies</div>
+        <div class="cmd-item" onclick="nav('workbench',null);closeCmd()"><div class="cmd-item-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1A3680" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div><div><div class="cmd-item-label">NCT05847219 — Onc-2026 Phase 2</div><div class="cmd-item-meta">Pembrolizumab · In Review · 47 flagged</div></div></div>
+        <div class="cmd-item"><div class="cmd-item-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1A3680" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div><div><div class="cmd-item-label">NCT05912047 — CV-2025-04</div><div class="cmd-item-meta">Atorvastatin · Completed</div></div></div>
+        <div class="cmd-item"><div class="cmd-item-icon"><svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="#1A3680" stroke-width="1.75"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/></svg></div><div><div class="cmd-item-label">NCT06281547 — Inflam-2026</div><div class="cmd-item-meta">JAK1 inhibitor · Failed CRS · SME review</div></div></div>
+      </div>
+      <div class="cmd-section">
+        <div class="cmd-section-title">Actions</div>
+        <div class="cmd-item" onclick="closeCmd();showToast('info','New conversion','Upload dialog would open here.')"><div class="cmd-item-icon">+</div><div><div class="cmd-item-label">Start new conversion</div></div><span class="cmd-item-kbd">N</span></div>
+        <div class="cmd-item" onclick="closeCmd();showToast('info','PROV-O','Generating PROV-O bundle for NCT05847219…')"><div class="cmd-item-icon">↓</div><div><div class="cmd-item-label">Export provenance bundle</div></div></div>
+      </div>
+    </div>
+    <div class="cmd-footer">
+      <span>↑↓ navigate</span><span>↵ select</span><span>esc close</span>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ NOTIFICATIONS PANEL ══════════ -->
+<div id="notif-panel" class="notif-panel">
+  <div class="notif-header">
+    <div class="notif-title">Notifications</div>
+    <div class="notif-tabs">
+      <div class="notif-tab active">All</div>
+      <div class="notif-tab">Unread <span class="sidebar-badge" style="background:var(--brand-accent);font-size:9px;padding:0 5px;">4</span></div>
+      <div class="notif-tab">System</div>
+    </div>
+  </div>
+  <div class="notif-list">
+    <div class="notif-item unread">
+      <div class="notif-item-icon ai-success">✓</div>
+      <div class="notif-item-body">
+        <div class="notif-item-title">Conversion completed</div>
+        <div class="notif-item-text">CONV-2026-04-127 (NCT05847219) finished in 18m 42s · 47 auto-accepted, 8 for review</div>
+        <div class="notif-item-time">2 minutes ago</div>
+      </div>
+    </div>
+    <div class="notif-item unread">
+      <div class="notif-item-icon ai-warning">⚠</div>
+      <div class="notif-item-body">
+        <div class="notif-item-title">Amendment requires attention</div>
+        <div class="notif-item-text">Amendment 03 on NCT05768423 introduced 12 conflicts in eligibility section</div>
+        <div class="notif-item-time">14 minutes ago</div>
+      </div>
+    </div>
+    <div class="notif-item unread">
+      <div class="notif-item-icon ai-accent">@</div>
+      <div class="notif-item-body">
+        <div class="notif-item-title">Anita Rao mentioned you</div>
+        <div class="notif-item-text">Tagged on inclusion criterion 7 (CONV-2026-04-127) — please review CT code assignment</div>
+        <div class="notif-item-time">1 hour ago</div>
+      </div>
+    </div>
+    <div class="notif-item unread">
+      <div class="notif-item-icon ai-danger">×</div>
+      <div class="notif-item-body">
+        <div class="notif-item-title">Conformance failed</div>
+        <div class="notif-item-text">CONV-2026-04-129 (NCT06281547) failed CRS validation after 5 iterations — SME assigned</div>
+        <div class="notif-item-time">2 hours ago</div>
+      </div>
+    </div>
+    <div class="notif-item">
+      <div class="notif-item-icon ai-info">↑</div>
+      <div class="notif-item-body">
+        <div class="notif-item-title">Model upgrade completed</div>
+        <div class="notif-item-text">Sonnet 4.6 promoted to production after 72h canary · eval score +3.2% vs 4.5</div>
+        <div class="notif-item-time">6 hours ago</div>
+      </div>
+    </div>
+    <div class="notif-item">
+      <div class="notif-item-icon" style="background:var(--surface-sunken);color:var(--text-tertiary);">📋</div>
+      <div class="notif-item-body">
+        <div class="notif-item-title">New CDISC CT version available</div>
+        <div class="notif-item-text">CDISC CT 2026-Q2 is available · auto-applied to studies dated Q2 2026+</div>
+        <div class="notif-item-time">1 day ago</div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- ══════════ TOAST STACK ══════════ -->
+<div id="toast-stack"></div>
+
+<script>
+// ─── AUTH ───
+function doLogin() {
+  const email = document.getElementById('login-email').value.trim().toLowerCase();
+  const pw = document.getElementById('login-password').value;
+  const err = document.getElementById('login-error');
+  const validEmail = email.endsWith('@maxisai.com') || email.endsWith('@maxisit.com');
+  if (validEmail && pw === 'demo') {
+    err.classList.remove('visible');
+    document.getElementById('screen-login').classList.add('hidden');
+    document.getElementById('screen-app').classList.remove('hidden');
+    setTimeout(() => showToast('success','Welcome back','Signed in as Arun Goel · MaxisAI Super Admin view active.'), 300);
+    setTimeout(() => showToast('info','Conversion completed','<span class="mono">CONV-2026-04-127</span> finished in 18m 42s · 47 fields auto-accepted, 8 for review.'), 2000);
+  } else {
+    err.classList.add('visible');
+  }
+}
+document.addEventListener('keydown', e => {
+  if (e.key === 'Enter' && document.getElementById('screen-login') && !document.getElementById('screen-login').classList.contains('hidden')) {
+    doLogin();
+  }
+});
+function togglePw() {
+  const f = document.getElementById('login-password');
+  f.type = f.type === 'password' ? 'text' : 'password';
+}
+
+// ─── NAVIGATION ───
+const pageNames = {
+  dashboard:'Dashboard', conversions:'Conversions', workbench:'Review Workbench',
+  lineage:'Lineage Explorer', quality:'Quality Dashboard', provenance:'Provenance',
+  knowledge:'Knowledge Graph', adjudications:'Adjudications', audit:'Audit Trail',
+  docstudio:'Doc Studio', integrations:'Integrations', models:'Models & Skills'
+};
+function nav(pageId, sidebarEl) {
+  document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+  const target = document.getElementById('page-' + pageId);
+  if (target) target.classList.add('active');
+  document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+  if (sidebarEl) sidebarEl.classList.add('active');
+  const label = pageNames[pageId] || pageId;
+  document.getElementById('topbar-page').textContent = label;
+  // scroll page to top
+  if (target) target.scrollTop = 0;
+}
+
+// ─── LINEAGE VIEW SWITCHER ───
+function switchLineageView(view) {
+  ['timeline','graph','field'].forEach(v => {
+    document.getElementById('lin-view-' + v).style.display = v === view ? 'block' : 'none';
+    document.getElementById('lt-' + v).classList.toggle('active', v === view);
+  });
+}
+
+// ─── COMMAND PALETTE ───
+function openCmd() {
+  document.getElementById('cmd-overlay').classList.remove('hidden');
+  setTimeout(() => document.getElementById('cmd-input').focus(), 50);
+}
+function closeCmd() { document.getElementById('cmd-overlay').classList.add('hidden'); }
+function filterCmd(val) { /* full fuzzy search would be wired here */ }
+document.addEventListener('keydown', e => {
+  if ((e.metaKey || e.ctrlKey) && e.key === 'k') { e.preventDefault(); openCmd(); }
+  if (e.key === 'Escape') closeCmd();
+  // workbench shortcuts
+  const wb = document.getElementById('page-workbench');
+  if (wb && wb.classList.contains('active')) {
+    if (e.key === 'a' || e.key === 'A') showToast('success','Accepted','ELIG-007 accepted · advancing to next item.');
+    if (e.key === 'r' || e.key === 'R') showToast('info','Rejected','Reason picker opened.');
+    if (e.key === 'e' || e.key === 'E') showToast('info','Edit mode','Edit dialog opened.');
+    if (e.key === 's' || e.key === 'S') showToast('info','Sent to SME','Routed to Dr. Vikram Patel.');
+  }
+});
+
+// ─── NOTIFICATIONS ───
+function toggleNotif() {
+  document.getElementById('notif-panel').classList.toggle('open');
+}
+
+// ─── THEME TOGGLE ───
+let dark = false;
+function toggleTheme() {
+  dark = !dark;
+  document.documentElement.setAttribute('data-theme', dark ? 'dark' : '');
+  if (dark) {
+    document.documentElement.style.setProperty('--surface-canvas', '#0A1628');
+    document.documentElement.style.setProperty('--surface-base', '#0F1E35');
+    document.documentElement.style.setProperty('--surface-sunken', '#071221');
+    document.documentElement.style.setProperty('--border-subtle', '#1C3254');
+    document.documentElement.style.setProperty('--border-default', '#274470');
+    document.documentElement.style.setProperty('--text-primary', '#EFF3FA');
+    document.documentElement.style.setProperty('--text-secondary', '#A8BACE');
+    document.documentElement.style.setProperty('--text-tertiary', '#7A92B0');
+    showToast('info','Dark mode','Dark theme enabled.');
+  } else {
+    document.documentElement.style.setProperty('--surface-canvas', '#F4F7FC');
+    document.documentElement.style.setProperty('--surface-base', '#FFFFFF');
+    document.documentElement.style.setProperty('--surface-sunken', '#EDF1F8');
+    document.documentElement.style.setProperty('--border-subtle', '#DDE4F0');
+    document.documentElement.style.setProperty('--border-default', '#C2CEDF');
+    document.documentElement.style.setProperty('--text-primary', '#0C1B3A');
+    document.documentElement.style.setProperty('--text-secondary', '#2E4066');
+    document.documentElement.style.setProperty('--text-tertiary', '#6478A0');
+    showToast('info','Light mode','Light theme enabled.');
+  }
+}
+
+// ─── TOASTS ───
+let toastCount = 0;
+function showToast(type, title, body) {
+  const stack = document.getElementById('toast-stack');
+  const id = 'toast-' + (++toastCount);
+  const icons = {success:'✓',info:'i',warning:'⚠',danger:'×'};
+  const bgColors = {success:'var(--success-soft)',info:'var(--info-soft)',warning:'var(--warning-soft)',danger:'var(--danger-soft)'};
+  const fgColors = {success:'var(--success)',info:'var(--info)',warning:'var(--warning)',danger:'var(--danger)'};
+  const t = document.createElement('div');
+  t.id = id;
+  t.className = 'toast toast-' + type;
+  t.innerHTML = `
+    <div class="toast-icon" style="background:${bgColors[type]};color:${fgColors[type]};">${icons[type]}</div>
+    <div>
+      <div class="toast-title">${title}</div>
+      <div class="toast-body">${body||''}</div>
+    </div>
+  `;
+  stack.appendChild(t);
+  const ttl = type === 'danger' ? 0 : type === 'warning' ? 7000 : type === 'info' ? 5000 : 4000;
+  if (ttl > 0) setTimeout(() => { if (t.parentNode) t.remove(); }, ttl);
+  // max 5 toasts
+  const toasts = stack.querySelectorAll('.toast');
+  if (toasts.length > 5) toasts[0].remove();
+}
+
+// ─── COLLAPSE CARDS ───
+document.addEventListener('click', e => {
+  const h = e.target.closest('.collapse-header');
+  if (h) h.parentElement.classList.toggle('open');
+});
+</script>
+</body>
+</html>

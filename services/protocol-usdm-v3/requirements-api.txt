@@ -1,0 +1,23 @@
+# Slim requirements for the protocol-usdm-v3 Docker service.
+# Omits unstructured[pdf] (pulls PyTorch/CUDA ~1 GB) — the service uses
+# liteparse (Node) as primary parser and markitdown as lightweight fallback.
+
+anthropic>=0.96.0
+httpx>=0.28.0
+pydantic>=2.7.0
+python-dotenv>=1.0.0
+usdm4>=0.19.0
+
+# PDF parsing
+liteparse>=1.2.0            # Python wrapper for @llamaindex/liteparse Node CLI
+markitdown[pdf]>=0.1.5
+pypdf>=6.0.0
+pypdfium2>=5.0.0
+
+# HTTP API
+fastapi>=0.115.0
+uvicorn[standard]>=0.32.0
+python-multipart>=0.0.18
+
+# Testing
+pytest>=8.0

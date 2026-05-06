@@ -4,7 +4,7 @@ Manages EDC connector schedules, document ingestion, ingestion manifests,
 Bronze layer writes, and Kafka event emission.
 """
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, BackgroundTasks, Request
 from pydantic import BaseModel
 from pydantic_settings import BaseSettings
 import structlog
@@ -40,6 +40,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        extra = 'ignore'
 
 settings = Settings()
 db_pool: asyncpg.Pool = None
@@ -146,14 +147,72 @@ async def call_context_graph(path: str, body: dict = None, method: str = "POST",
 # ============================================================
 
 SUPPORTED_DOC_TYPES = {
-    "protocol", "sap", "crf", "csr", "sdtm_ig", "adam_ig",
+    "protocol", "sap", "crf", "csr", "sdtm_ig", "adam_ig", "usdm_ig",
     "lab_manual", "lab_report", "study_budget", "dmp", "icf", "other",
+    "ich_guideline", "controlled_terminology",
     "auto",  # new: trigger LLM-based type detection
+}
+
+# Common SDTM dataset filenames uploaded as CSV exports (e.g., AE.csv, DM.csv).
+SDTM_DATASET_NAMES = {
+    "AE", "CM", "DM", "DS", "EX", "LB", "MH", "QS", "SE", "SV", "TA", "TE", "TI", "TS", "TU", "TV", "VS",
+    "SUPPAE", "SUPPCM", "SUPPDM", "SUPPDS", "SUPPEX", "SUPPLB", "SUPPMH", "SUPPQS", "SUPPVS",
 }
 
 @app.get("/health")
 async def health():
     return {"status": "ok", "service": "ingestion"}
+
+def extract_document_date(content: bytes, filename: str) -> Optional[str]:
+    """Extract the protocol/document date from the file content (first 3 pages)."""
+    text = ""
+    try:
+        fname = filename.lower()
+        if fname.endswith('.pdf'):
+            import fitz
+            doc = fitz.open(stream=content, filetype="pdf")
+            for page in doc[:3]:
+                text += page.get_text() + "\n"
+            doc.close()
+        elif fname.endswith(('.docx', '.doc')):
+            try:
+                import docx
+                d = docx.Document(io.BytesIO(content))
+                text = "\n".join(p.text for p in d.paragraphs[:80])
+            except Exception:
+                pass
+    except Exception:
+        return None
+
+    date_patterns = [
+        # Labelled dates: "Protocol Date: 15 Jan 2024" / "Effective Date: 2024-01-15"
+        r'(?:Protocol\s+Date|Effective\s+Date|Date\s+of\s+(?:Issue|Amendment)|Amendment\s+Date|Version\s+Date|Issue\s+Date|Approval\s+Date)[:\s]+(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})',
+        r'(?:Protocol\s+Date|Effective\s+Date|Date\s+of\s+(?:Issue|Amendment)|Amendment\s+Date|Version\s+Date|Issue\s+Date|Approval\s+Date)[:\s]+(\d{4}-\d{2}-\d{2})',
+        r'(?:Protocol\s+Date|Effective\s+Date|Date\s+of\s+(?:Issue|Amendment)|Amendment\s+Date|Version\s+Date|Issue\s+Date|Approval\s+Date)[:\s]+([A-Z][a-z]+\.?\s+\d{1,2},?\s+\d{4})',
+        r'(?:Protocol\s+Date|Effective\s+Date|Date\s+of\s+(?:Issue|Amendment)|Amendment\s+Date|Version\s+Date|Issue\s+Date|Approval\s+Date)[:\s]+(\d{1,2}\s+[A-Z][a-z]+\.?\s+\d{4})',
+        # Generic "Date: ..." near the top (first 500 chars only)
+        r'Date[:\s]+(\d{1,2}[\/\-\.]\d{1,2}[\/\-\.]\d{2,4})',
+        r'Date[:\s]+(\d{1,2}\s+[A-Z][a-z]+\.?\s+\d{4})',
+    ]
+    date_formats = [
+        '%d/%m/%Y','%m/%d/%Y','%d-%m-%Y','%m-%d-%Y','%d.%m.%Y','%m.%d.%Y',
+        '%Y-%m-%d','%d/%m/%y','%m/%d/%y',
+        '%B %d, %Y','%B %d %Y','%d %B %Y','%b %d, %Y','%b %d %Y','%d %b %Y',
+        '%B. %d, %Y','%b. %d, %Y',
+    ]
+    import re
+    from datetime import datetime as _dt
+    for pattern in date_patterns:
+        m = re.search(pattern, text[:2000], re.IGNORECASE)
+        if m:
+            raw = m.group(1).strip().rstrip('.')
+            for fmt in date_formats:
+                try:
+                    return _dt.strptime(raw, fmt).strftime('%Y-%m-%d')
+                except Exception:
+                    pass
+    return None
+
 
 @app.post("/documents/upload")
 async def upload_document(
@@ -174,11 +233,16 @@ async def upload_document(
     Accept document uploads: protocol, SAP, CRF, CSR, lab reports, budgets, etc.
     document_type='auto'  → LLM auto-detects type; may create pending_classification.
     1. Compute SHA-256
-    2. Store raw file in S3 (bronze documents bucket)
-    3. Write ingestion manifest
-    4. Queue background processing (parse/chunk/embed/graph)
-    5. Emit Kafka event
+    2. Dedup: same file in same study → 409; new protocol version → auto-version + chain
+    3. Extract document date from content
+    4. Store raw file in S3 (bronze documents bucket)
+    5. Write ingestion manifest
+    6. Queue background processing (parse/chunk/embed/graph)
+    7. Emit Kafka event
     """
+    from fastapi.responses import JSONResponse
+    import io
+
     if document_type not in SUPPORTED_DOC_TYPES:
         raise HTTPException(400, f"Unsupported document_type. Must be one of: {SUPPORTED_DOC_TYPES}")
 
@@ -186,29 +250,67 @@ async def upload_document(
     sha256_hash = compute_sha256(content)
     file_size = len(content)
 
-    # Duplicate detection: same file content (SHA-256) already exists for this org
-    async with db_pool.acquire() as conn:
-        existing = await conn.fetchrow(
-            "SELECT id, name, document_type, status, bronze_s3_key, created_at FROM documents "
-            "WHERE org_id=$1 AND sha256_hash=$2 LIMIT 1",
-            org_id, sha256_hash
-        )
-    if existing:
-        from fastapi.responses import JSONResponse
-        return JSONResponse(status_code=409, content={
-            "duplicate": True,
-            "existing_document_id": str(existing["id"]),
-            "existing_document_name": existing["name"],
-            "existing_document_type": existing["document_type"],
-            "existing_status": existing["status"],
-            "s3_key": existing["bronze_s3_key"],
-            "message": f"A document with identical content already exists: '{existing['name']}'",
-        })
-
-    doc_id = str(uuid.uuid4())
-
     # Use 'other' as the placeholder type when auto-detecting
     effective_type = "other" if document_type == "auto" else document_type
+
+    # ── Deduplication & versioning ──────────────────────────────────────────────
+    version_number = 1
+    parent_document_id = None
+
+    async with db_pool.acquire() as conn:
+        if study_id:
+            # 1. Exact duplicate within same study → reject
+            same_file = await conn.fetchrow(
+                "SELECT id, name, document_type, status FROM documents "
+                "WHERE org_id=$1::uuid AND study_id=$2 AND sha256_hash=$3 LIMIT 1",
+                org_id, study_id, sha256_hash
+            )
+            if same_file:
+                return JSONResponse(status_code=409, content={
+                    "duplicate": True,
+                    "scope": "study",
+                    "existing_document_id": str(same_file["id"]),
+                    "existing_document_name": same_file["name"],
+                    "existing_document_type": same_file["document_type"],
+                    "existing_status": same_file["status"],
+                    "message": f"This exact file has already been uploaded to this study: '{same_file['name']}'",
+                })
+
+            # 2. Protocol new-version detection: previous protocol exists for this study
+            if effective_type == "protocol":
+                prev = await conn.fetchrow(
+                    "SELECT id, name, version, version_number FROM documents "
+                    "WHERE org_id=$1::uuid AND study_id=$2 AND document_type='protocol' "
+                    "ORDER BY version_number DESC LIMIT 1",
+                    org_id, study_id
+                )
+                if prev:
+                    version_number = prev["version_number"] + 1
+                    version = f"{version_number}.0"
+                    parent_document_id = str(prev["id"])
+        else:
+            # No study context — org-wide duplicate check (original behaviour)
+            existing = await conn.fetchrow(
+                "SELECT id, name, document_type, status, bronze_s3_key FROM documents "
+                "WHERE org_id=$1 AND sha256_hash=$2 LIMIT 1",
+                org_id, sha256_hash
+            )
+            if existing:
+                return JSONResponse(status_code=409, content={
+                    "duplicate": True,
+                    "scope": "org",
+                    "existing_document_id": str(existing["id"]),
+                    "existing_document_name": existing["name"],
+                    "existing_document_type": existing["document_type"],
+                    "existing_status": existing["status"],
+                    "s3_key": existing["bronze_s3_key"],
+                    "message": f"A document with identical content already exists: '{existing['name']}'",
+                })
+
+    # ── Extract date from document content ────────────────────────────────────
+    document_date = extract_document_date(content, file.filename)
+
+    doc_id = str(uuid.uuid4())
 
     # S3 key: org_id/study_id/document_type/doc_id/filename
     s3_key = f"{org_id}/{study_id or 'org-level'}/{effective_type}/{doc_id}/{file.filename}"
@@ -231,20 +333,32 @@ async def upload_document(
     )
 
     # Write to DB
-    async with db_pool.acquire() as conn:
-        await conn.execute("""
-            INSERT INTO documents (id, org_id, study_id, document_type, name, file_name,
-                file_size_bytes, sha256_hash, version, source_type, bronze_s3_key, status, uploaded_by)
-            VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,'upload',$10,'pending',$11)
-        """, doc_id, org_id, study_id, effective_type, file.filename, file.filename,
-            file_size, sha256_hash, version, s3_key, uploaded_by)
-
-        # For lab reports: create lab_report_ingestion record
-        if effective_type == "lab_report" and lab_type:
+    try:
+        async with db_pool.acquire() as conn:
             await conn.execute("""
-                INSERT INTO lab_report_ingestions (document_id, lab_type, site_id, report_date)
-                VALUES ($1,$2,$3,$4)
-            """, doc_id, lab_type, site_id, report_date)
+                INSERT INTO documents (id, org_id, study_id, document_type, name, file_name,
+                    file_size_bytes, sha256_hash, version, version_number, parent_document_id,
+                    document_date, source_type, bronze_s3_key, status, uploaded_by)
+                VALUES ($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11,$12,'upload',$13,'pending',$14)
+            """, doc_id, org_id, study_id, effective_type, file.filename, file.filename,
+                file_size, sha256_hash, version, version_number, parent_document_id,
+                document_date, s3_key, uploaded_by)
+
+            # For lab reports: create lab_report_ingestion record
+            if effective_type == "lab_report" and lab_type:
+                await conn.execute("""
+                    INSERT INTO lab_report_ingestions (document_id, lab_type, site_id, report_date)
+                    VALUES ($1,$2,$3,$4)
+                """, doc_id, lab_type, site_id, report_date)
+    except asyncpg.CheckViolationError as e:
+        raise HTTPException(status_code=400, detail=f"Invalid document_type '{effective_type}'") from e
+    except asyncpg.UniqueViolationError:
+        # Race-condition: another upload of same file to same study won the race
+        return JSONResponse(status_code=409, content={
+            "duplicate": True,
+            "scope": "study",
+            "message": "This file has already been uploaded to this study.",
+        })
 
     # Write ingestion manifest to S3
     manifest = {
@@ -253,11 +367,14 @@ async def upload_document(
         "org_id": org_id,
         "study_id": study_id,
         "document_type": effective_type,
-        "requested_type": document_type,   # 'auto' if user requested auto-detection
+        "requested_type": document_type,
         "file_name": file.filename,
         "file_size_bytes": file_size,
         "sha256_hash": sha256_hash,
         "version": version,
+        "version_number": version_number,
+        "parent_document_id": parent_document_id,
+        "document_date": document_date,
         "ingested_at": datetime.now(timezone.utc).isoformat(),
         "ingested_by": uploaded_by,
         "source": "file_upload",
@@ -271,19 +388,24 @@ async def upload_document(
     )
 
     # Write lineage record to MongoDB
+    lineage_event = "new_version" if parent_document_id else "initial_upload"
     try:
         await mongo_db.document_lineage.insert_one({
             "document_id": doc_id,
+            "parent_document_id": parent_document_id,
+            "study_id": study_id,
             "tenant_id": org_id,
             "version": version,
+            "version_number": version_number,
+            "document_date": document_date,
             "file_name": file.filename,
             "sha256_hash": sha256_hash,
             "file_size_bytes": file_size,
             "uploaded_by_id": uploaded_by,
             "uploaded_by_name": uploaded_by_name or "",
             "uploaded_at": datetime.utcnow(),
-            "event": "initial_upload",
-            "notes": ""
+            "event": lineage_event,
+            "notes": f"Supersedes v{prev['version']}" if parent_document_id and 'prev' in dir() else "",
         })
     except Exception as e:
         log.warning("lineage.write_failed", doc_id=doc_id, error=str(e))
@@ -317,15 +439,25 @@ async def upload_document(
     )
 
     log.info("document.uploaded", doc_id=doc_id, doc_type=effective_type,
+             version=version, version_number=version_number,
              auto_detect=document_type == "auto", org_id=org_id)
     return {
         "document_id": doc_id,
         "sha256_hash": sha256_hash,
         "s3_key": s3_key,
         "status": "pending",
+        "version": version,
+        "version_number": version_number,
+        "is_new_version": parent_document_id is not None,
+        "parent_document_id": parent_document_id,
+        "document_date": document_date,
         "auto_detect": document_type == "auto",
-        "message": "Document queued for processing"
-        + (" — type will be auto-detected" if document_type == "auto" else ""),
+        "message": (
+            f"Protocol v{version} uploaded — supersedes previous version"
+            if parent_document_id else
+            "Document queued for processing"
+            + (" — type will be auto-detected" if document_type == "auto" else "")
+        ),
     }
 
 
@@ -339,6 +471,20 @@ async def process_document(doc_id: str, document_type: str, s3_key: str,
             await conn.execute("UPDATE documents SET status='processing' WHERE id=$1", doc_id)
 
         # ── Step 1: Auto-detect document type ────────────────────────────────
+        lower_filename = (filename or "").lower().strip()
+        file_base = lower_filename.rsplit("/", 1)[-1]
+        file_stem = file_base.rsplit(".", 1)[0].upper() if "." in file_base else file_base.upper()
+
+        # Fast path for SDTM domain CSV exports that are commonly named by domain.
+        if auto_detect and file_base.endswith(".csv") and file_stem in SDTM_DATASET_NAMES:
+            document_type = "sdtm_dataset"
+            async with db_pool.acquire() as conn:
+                await conn.execute("UPDATE documents SET document_type=$1 WHERE id=$2",
+                                   document_type, doc_id)
+            log.info("document.csv_domain_detected", doc_id=doc_id,
+                     filename=filename, detected_type=document_type)
+            auto_detect = False
+
         # XPT files are binary SAS transport — auto-detect would produce garbage; skip it
         if auto_detect and content[:8] == b'HEADER R':
             document_type = "sdtm_dataset"
@@ -373,14 +519,20 @@ async def process_document(doc_id: str, document_type: str, s3_key: str,
                 log.info("document.pending_classification", doc_id=doc_id)
 
         # ── Step 2: Route to type-specific processor ──────────────────────────
-        text_doc_types = {"protocol","sap","crf","csr","sdtm_ig","adam_ig",
-                          "lab_manual","dmp","icf","sdtm_dataset","adam_dataset","other"}
+        text_doc_types = {"protocol","sap","crf","csr","sdtm_ig","adam_ig","usdm_ig",
+                          "lab_manual","dmp","icf","sdtm_dataset","adam_dataset","other",
+                          "ich_guideline","controlled_terminology"}
         if document_type in text_doc_types:
             await process_text_document(doc_id, content, document_type, org_id, study_id, filename=filename)
         elif document_type == "lab_report":
             await process_lab_report(doc_id, content, lab_type, org_id, study_id)
         elif document_type == "study_budget":
             await process_budget(doc_id, content, org_id, study_id)
+            # Budget parsing populates transactional tables but does not create
+            # document chunks. For CSV-like uploads, also build chunk/index data
+            # so the UI can show Stats/Details/Graph/Intelligence.
+            if file_base.endswith((".csv", ".tsv", ".txt")):
+                await process_text_document(doc_id, content, "other", org_id, study_id, filename=filename)
 
         async with db_pool.acquire() as conn:
             await conn.execute("UPDATE documents SET status='indexed', updated_at=NOW() WHERE id=$1", doc_id)
@@ -503,7 +655,9 @@ async def process_text_document(doc_id: str, content: bytes, doc_type: str,
     if doc_type in ("sdtm_dataset", "adam_dataset"):
         chunk_strategy = "xpt_tabular"
     elif _total_c > 0 and by_type.get("text", 0) / max(1, _total_c) >= 0.8:
-        chunk_strategy = "toc_driven"
+        # Distinguish whether section hierarchy came from embedded ToC or heading detection
+        has_sections = any(c.get("section") and "/" in (c.get("section") or "") for c in chunks[:20])
+        chunk_strategy = "section_based" if has_sections else "toc_driven"
     else:
         chunk_strategy = "hybrid"
     await emit_processing_log(doc_id, org_id, "ingestion", "completed",
@@ -701,6 +855,53 @@ async def _reprocess_document_bg(doc_id: str, doc: dict, content: bytes):
         log.error("document.reprocess_failed", doc_id=doc_id, error=str(e))
 
 
+@app.delete("/documents/{doc_id}", status_code=204)
+async def delete_document(doc_id: str, org_id: str):
+    """
+    Permanently delete a document and ALL associated data:
+    chunks, embeddings, pending classifications, lab report ingestions,
+    site budgets, processing logs, folder assignments (MongoDB), and
+    the context-graph nodes/edges.  Also removes the raw file from S3.
+    """
+    async with db_pool.acquire() as conn:
+        doc = await conn.fetchrow(
+            "SELECT id, org_id, bronze_s3_key FROM documents WHERE id=$1 AND org_id=$2",
+            doc_id, org_id,
+        )
+    if not doc:
+        raise HTTPException(404, "Document not found")
+
+    # 1. Wipe graph nodes, edges and vector index entries
+    try:
+        await call_context_graph(
+            f"/graph/document/{doc_id}", method="DELETE", params={"org_id": org_id}
+        )
+    except Exception as e:
+        log.warning("delete_doc.graph_wipe_failed", doc_id=doc_id, error=str(e))
+
+    # 2. Remove all relational data referencing this document
+    async with db_pool.acquire() as conn:
+        await conn.execute("DELETE FROM document_chunks WHERE document_id=$1", doc_id)
+        await conn.execute("DELETE FROM pending_classifications WHERE document_id=$1", doc_id)
+        await conn.execute("DELETE FROM lab_report_ingestions WHERE document_id=$1", doc_id)
+        await conn.execute("DELETE FROM site_budgets WHERE source_document_id=$1", doc_id)
+        await conn.execute("DELETE FROM processing_logs WHERE document_id=$1", doc_id)
+        await conn.execute("DELETE FROM documents WHERE id=$1", doc_id)
+
+    # 3. Remove folder assignment from MongoDB
+    await mongo_db.folder_files.delete_one({"tenant_id": org_id, "document_id": doc_id})
+
+    # 4. Delete raw file from S3 (best-effort)
+    if doc["bronze_s3_key"]:
+        try:
+            s3 = get_s3_client()
+            s3.delete_object(Bucket=settings.s3_bucket_docs, Key=doc["bronze_s3_key"])
+        except Exception as e:
+            log.warning("delete_doc.s3_delete_failed", doc_id=doc_id, error=str(e))
+
+    log.info("document.deleted", doc_id=doc_id, org_id=org_id)
+
+
 @app.get("/documents")
 async def list_documents(org_id: str, study_id: Optional[str] = None, document_type: Optional[str] = None):
     async with db_pool.acquire() as conn:
@@ -712,15 +913,78 @@ async def list_documents(org_id: str, study_id: Optional[str] = None, document_t
         if document_type:
             conditions.append(f"document_type=${i}"); params.append(document_type); i += 1
         rows = await conn.fetch(
-            f"SELECT id, name, document_type, version, status, sha256_hash, file_size_bytes, created_at, uploaded_by FROM documents WHERE {' AND '.join(conditions)} ORDER BY created_at DESC",
+            f"SELECT id, name, document_type, version, status, sha256_hash, file_size_bytes, created_at, uploaded_by, is_foundational, metadata FROM documents WHERE {' AND '.join(conditions)} ORDER BY created_at DESC",
             *params
         )
-        return {"documents": [dict(r) for r in rows]}
+        import json as _json
+        docs_out = []
+        for r in rows:
+            d = dict(r)
+            if isinstance(d.get("metadata"), str):
+                try:
+                    d["metadata"] = _json.loads(d["metadata"])
+                except Exception:
+                    d["metadata"] = {}
+            docs_out.append(d)
+        return {"documents": docs_out}
 
 
-# ============================================================
-# FOLDER ENDPOINTS
-# ============================================================
+FOUNDATIONAL_CATEGORIES = {"standard", "codelist", "regulation"}
+
+@app.patch("/documents/{doc_id}/foundational")
+async def toggle_foundational(
+    doc_id: str,
+    org_id: str,
+    is_foundational: bool,
+    category: Optional[str] = None,
+):
+    """Mark or unmark a document as foundational (contributes to Foundation Graph).
+    
+    category: one of 'standard', 'codelist', 'regulation' (required when is_foundational=True).
+    Maps to L1.E4 Standards, L1.E3 Controlled Terminology, L1.E2 Regulatory Requirements.
+    """
+    if is_foundational and category and category not in FOUNDATIONAL_CATEGORIES:
+        raise HTTPException(400, f"category must be one of: {FOUNDATIONAL_CATEGORIES}")
+    async with db_pool.acquire() as conn:
+        doc = await conn.fetchrow(
+            "SELECT id, metadata FROM documents WHERE id=$1 AND org_id=$2",
+            doc_id, org_id,
+        )
+        if not doc:
+            raise HTTPException(404, "Document not found")
+        # Merge foundational_category into existing metadata
+        existing_meta = {}
+        if doc["metadata"]:
+            try:
+                existing_meta = json.loads(doc["metadata"]) if isinstance(doc["metadata"], str) else dict(doc["metadata"])
+            except Exception:
+                pass
+        if is_foundational and category:
+            existing_meta["foundational_category"] = category
+        elif not is_foundational:
+            existing_meta.pop("foundational_category", None)
+        await conn.execute(
+            "UPDATE documents SET is_foundational=$1, metadata=$2::jsonb, updated_at=NOW() WHERE id=$3",
+            is_foundational, json.dumps(existing_meta), doc_id,
+        )
+    return {"ok": True, "is_foundational": is_foundational, "category": category if is_foundational else None}
+
+
+@app.patch("/documents/{doc_id}/study")
+async def assign_document_to_study(doc_id: str, org_id: str, study_id: str):
+    """Assign (or reassign) a document to a study."""
+    async with db_pool.acquire() as conn:
+        doc = await conn.fetchrow(
+            "SELECT id FROM documents WHERE id=$1 AND org_id=$2",
+            doc_id, org_id,
+        )
+        if not doc:
+            raise HTTPException(404, "Document not found")
+        await conn.execute(
+            "UPDATE documents SET study_id=$1, updated_at=NOW() WHERE id=$2",
+            study_id, doc_id,
+        )
+    return {"ok": True, "document_id": doc_id, "study_id": study_id}
 
 def _oid(v) -> ObjectId:
     """Convert string to ObjectId, raise 400 on invalid format."""
@@ -915,6 +1179,124 @@ async def get_all_folder_files(org_id: str):
     return {"files": [{"document_id": e["document_id"], "folder_id": e.get("folder_id")} for e in entries]}
 
 
+@app.get("/documents/{doc_id}/chunks/{chunk_id}")
+async def get_chunk(doc_id: str, chunk_id: str):
+    """Return full content for a single chunk by its UUID (for workbench full-text display)."""
+    async with db_pool.acquire() as conn:
+        row = await conn.fetchrow(
+            "SELECT id, chunk_index, page_number, section, content, metadata "
+            "FROM document_chunks WHERE document_id=$1 AND id=$2",
+            doc_id, chunk_id,
+        )
+    if not row:
+        raise HTTPException(404, "Chunk not found")
+    r = dict(row)
+    r["id"] = str(r["id"])
+    if isinstance(r.get("metadata"), str):
+        try:
+            r["metadata"] = json.loads(r["metadata"])
+        except Exception:
+            r["metadata"] = {}
+    return r
+
+
+@app.get("/documents/{doc_id}/serve")
+async def serve_document(doc_id: str, request: Request):
+    """Serve document with HTTP Range support, ETag caching, and non-blocking S3 I/O.
+
+    Range requests let the browser's PDF viewer fetch only the pages it needs,
+    eliminating the wait-for-full-download bottleneck.
+    """
+    import asyncio
+    from fastapi.responses import Response, StreamingResponse
+
+    async with db_pool.acquire() as conn:
+        doc = await conn.fetchrow(
+            "SELECT file_name, bronze_s3_key FROM documents WHERE id=$1", doc_id
+        )
+    if not doc or not doc["bronze_s3_key"]:
+        raise HTTPException(404, "Document not found")
+
+    fname    = doc["file_name"] or "document"
+    s3_key   = doc["bronze_s3_key"]
+    is_pdf   = fname.lower().endswith(".pdf")
+    ctype    = "application/pdf" if is_pdf else "application/octet-stream"
+    loop     = asyncio.get_event_loop()
+    s3       = get_s3_client()
+
+    # HEAD first — tiny call, gives us Content-Length + ETag without fetching data
+    try:
+        head = await loop.run_in_executor(
+            None, lambda: s3.head_object(Bucket=settings.s3_bucket_docs, Key=s3_key)
+        )
+    except Exception as e:
+        raise HTTPException(500, f"S3 head failed: {e}")
+
+    total = head["ContentLength"]
+    etag  = head.get("ETag", "").strip('"')
+
+    base_headers = {
+        "Content-Disposition": f'inline; filename="{fname}"',
+        "Accept-Ranges":       "bytes",
+        "Cache-Control":       "public, max-age=3600",
+        "ETag":                f'"{etag}"',
+    }
+
+    # Honour If-None-Match — return 304 if browser already has this version cached
+    if request.headers.get("If-None-Match", "").strip('"') == etag:
+        return Response(status_code=304, headers=base_headers)
+
+    # ── Byte-range request (PDF.js page-level fetches) ──────────────────────
+    range_header = request.headers.get("Range", "")
+    if range_header.startswith("bytes="):
+        try:
+            spec       = range_header[6:]
+            start_s, end_s = spec.split("-", 1)
+            start = int(start_s) if start_s else 0
+            end   = int(end_s)   if end_s   else total - 1
+            end   = min(end, total - 1)
+        except Exception:
+            raise HTTPException(416, "Range Not Satisfiable")
+
+        data = await loop.run_in_executor(
+            None,
+            lambda: s3.get_object(
+                Bucket=settings.s3_bucket_docs,
+                Key=s3_key,
+                Range=f"bytes={start}-{end}",
+            )["Body"].read()
+        )
+        return Response(
+            content=data,
+            status_code=206,
+            media_type=ctype,
+            headers={
+                **base_headers,
+                "Content-Range":  f"bytes {start}-{end}/{total}",
+                "Content-Length": str(end - start + 1),
+            },
+        )
+
+    # ── Full file — stream in 64 KB chunks so the first bytes arrive quickly ─
+    async def _stream():
+        obj  = await loop.run_in_executor(
+            None, lambda: s3.get_object(Bucket=settings.s3_bucket_docs, Key=s3_key)
+        )
+        body = obj["Body"]
+        while True:
+            chunk = await loop.run_in_executor(None, lambda: body.read(65536))
+            if not chunk:
+                break
+            yield chunk
+
+    return StreamingResponse(
+        _stream(),
+        status_code=200,
+        media_type=ctype,
+        headers={**base_headers, "Content-Length": str(total)},
+    )
+
+
 @app.get("/documents/{doc_id}/folder")
 async def get_document_folder(doc_id: str, org_id: str):
     """Get the folder assignment for a document."""
@@ -933,6 +1315,66 @@ async def get_document_lineage(doc_id: str, org_id: str):
     )
     entries = await cursor.to_list(length=None)
     return {"lineage": [_ser(e) for e in entries]}
+
+
+@app.get("/studies/{study_id}/protocol-lineage")
+async def get_study_protocol_lineage(study_id: str, org_id: str):
+    """Return the ordered version chain of protocols for a study (oldest → newest)."""
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            """SELECT d.id, d.name, d.file_name, d.version, d.version_number,
+                      d.document_date, d.parent_document_id, d.status,
+                      d.sha256_hash, d.file_size_bytes, d.created_at,
+                      d.metadata, u.name AS uploaded_by_name
+               FROM documents d
+               LEFT JOIN users u ON u.id::text = d.uploaded_by
+               WHERE d.org_id=$1::uuid AND d.study_id=$2 AND d.document_type='protocol'
+               ORDER BY d.version_number ASC""",
+            org_id, study_id
+        )
+    return {
+        "study_id": study_id,
+        "protocols": [
+            {
+                "id": str(r["id"]),
+                "name": r["name"],
+                "file_name": r["file_name"],
+                "version": r["version"],
+                "version_number": r["version_number"],
+                "document_date": r["document_date"].isoformat() if r["document_date"] else None,
+                "parent_document_id": str(r["parent_document_id"]) if r["parent_document_id"] else None,
+                "status": r["status"],
+                "sha256_hash": r["sha256_hash"],
+                "file_size_bytes": r["file_size_bytes"],
+                "uploaded_at": r["created_at"].isoformat(),
+                "uploaded_by_name": r["uploaded_by_name"] or "",
+            }
+            for r in rows
+        ]
+    }
+
+
+@app.get("/studies")
+async def list_studies(org_id: str):
+    """Return studies for an org (used by lineage filter)."""
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch(
+            "SELECT id, sponsor_protocol_id, title, phase, status "
+            "FROM studies WHERE org_id=$1 ORDER BY created_at DESC",
+            org_id
+        )
+    return {
+        "studies": [
+            {
+                "id": str(r["id"]),
+                "sponsor_protocol_id": r["sponsor_protocol_id"] or "",
+                "title": r["title"] or "",
+                "phase": r["phase"] or "",
+                "status": r["status"] or "",
+            }
+            for r in rows
+        ]
+    }
 
 
 @app.get("/documents/{doc_id}/xpt-analysis")

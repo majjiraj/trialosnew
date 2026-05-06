@@ -174,7 +174,7 @@ export default function AgentsPage() {
     setLoading(true)
     try {
       const [runsData, instData] = await Promise.all([
-        gql(`query { agentRunsForOrg(orgId: "${orgId}", limit: 30) {
+        gql(`query { agentRunsForOrg(orgId: "${orgId}", limit: 30, topLevelOnly: true) {
           id status agentName agentType agentSlug studyId
           outputSummary errorMessage startedAt createdAt
         }}`),
@@ -310,7 +310,7 @@ export default function AgentsPage() {
                     {s.icon}
                   </div>
                   <p className="text-xs text-slate-500 mt-0.5 truncate">
-                    {run.outputSummary || run.errorMessage || 'Running…'}
+                    {run.outputSummary || run.errorMessage || (run.status === 'running' ? 'Running…' : '')}
                   </p>
                 </div>
                 <div className="text-right flex-shrink-0">
@@ -331,31 +331,7 @@ export default function AgentsPage() {
         )}
       </div>
 
-      {/* Installed Agents */}
-      {installations.length > 0 && (
-        <div className="card divide-y divide-slate-50">
-          <div className="px-5 py-3 border-b border-slate-100">
-            <h2 className="text-sm font-semibold text-slate-700">Installed Agents</h2>
-          </div>
-          {installations.map(i => {
-            const isOwned = i.agent?.publisherOrgId === orgId || user?.is_platform_admin
-            return (
-              <div key={i.id} className="px-5 py-3 flex items-center gap-3">
-                <div className="w-8 h-8 bg-brand-50 rounded-lg flex items-center justify-center flex-shrink-0">
-                  <Bot className="w-4 h-4 text-brand-600" />
-                </div>
-                <div className="flex-1 min-w-0">
-                  <p className="text-sm font-medium text-slate-800 truncate">{i.agent?.name || i.agentId}</p>
-                  <p className="text-xs text-slate-400">v{i.installedVersion}</p>
-                </div>
-                {isOwned && (
-                  <ManageDropdown agentId={i.agent?.id || i.agentId} agentSlug={i.agent?.slug} orgId={orgId} userId={user?.id} isPlatformAdmin={!!user?.is_platform_admin} />
-                )}
-              </div>
-            )
-          })}
-        </div>
-      )}
+      {/* Installed Agents block hidden */}
 
       {/* Launch Modal */}
       {showModal && (

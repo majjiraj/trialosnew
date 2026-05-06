@@ -5,6 +5,66 @@ import { toast } from 'sonner'
 import { Loader2 } from 'lucide-react'
 import { useAuth } from '@/components/layout/AuthContext'
 
+const inputStyle: React.CSSProperties = {
+  display: 'block',
+  width: '100%',
+  height: '40px',
+  padding: '0 12px',
+  border: '1.5px solid #C2CEDF',
+  borderRadius: '8px',
+  fontSize: '14px',
+  color: '#0C1B3A',
+  background: '#FFFFFF',
+  outline: 'none',
+  transition: 'border-color 120ms, box-shadow 120ms',
+  fontFamily: 'inherit',
+}
+
+const labelStyle: React.CSSProperties = {
+  display: 'block',
+  fontSize: '13px',
+  fontWeight: 500,
+  color: '#2E4066',
+  marginBottom: '6px',
+}
+
+function Field({
+  label, type = 'text', value, onChange, placeholder, required, autoFocus, minLength,
+}: {
+  label: string
+  type?: string
+  value: string
+  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void
+  placeholder?: string
+  required?: boolean
+  autoFocus?: boolean
+  minLength?: number
+}) {
+  return (
+    <div>
+      <label style={labelStyle}>{label}</label>
+      <input
+        type={type}
+        value={value}
+        onChange={onChange}
+        required={required}
+        autoFocus={autoFocus}
+        placeholder={placeholder}
+        minLength={minLength}
+        style={inputStyle}
+        onFocus={e => {
+          e.target.style.borderColor = '#0EA5E9'
+          e.target.style.boxShadow = '0 0 0 3px rgba(14,165,233,0.18)'
+        }}
+        onBlur={e => {
+          e.target.style.borderColor = '#C2CEDF'
+          e.target.style.boxShadow = 'none'
+        }}
+      />
+    </div>
+  )
+}
+
 export default function SignupPage() {
   const { signup } = useAuth()
   const [form, setForm] = useState({ name: '', org_name: '', email: '', password: '' })
@@ -30,70 +90,59 @@ export default function SignupPage() {
   }
 
   return (
-    <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-8">
-      <h1 className="text-xl font-bold text-slate-900 mb-1">Create your account</h1>
-      <p className="text-sm text-slate-500 mb-6">Get your organization started on TrialOS</p>
+    <div>
+      <h1
+        style={{
+          fontSize: '26px',
+          fontWeight: 700,
+          color: '#0C1B3A',
+          marginBottom: '6px',
+          letterSpacing: '-0.02em',
+          lineHeight: 1.2,
+        }}
+      >
+        Create your account
+      </h1>
+      <p style={{ fontSize: '14px', color: '#6478A0', marginBottom: '32px', lineHeight: 1.6 }}>
+        Get your organization started on TrialOS
+      </p>
 
-      <form onSubmit={handleSubmit} className="space-y-4">
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1.5">Full Name</label>
-          <input
-            type="text"
-            value={form.name}
-            onChange={set('name')}
-            required
-            autoFocus
-            placeholder="Jane Smith"
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1.5">Organization Name</label>
-          <input
-            type="text"
-            value={form.org_name}
-            onChange={set('org_name')}
-            required
-            placeholder="Acme Pharma"
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1.5">Work Email</label>
-          <input
-            type="email"
-            value={form.email}
-            onChange={set('email')}
-            required
-            placeholder="jane@acme.com"
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
-        <div>
-          <label className="block text-xs font-medium text-slate-600 mb-1.5">Password</label>
-          <input
-            type="password"
-            value={form.password}
-            onChange={set('password')}
-            required
-            minLength={8}
-            placeholder="Min. 8 characters"
-            className="w-full px-3 py-2 border border-slate-200 rounded-lg text-sm focus:outline-none focus:ring-2 focus:ring-brand-500"
-          />
-        </div>
+      <form onSubmit={handleSubmit} style={{ display: 'flex', flexDirection: 'column', gap: '18px' }}>
+        <Field label="Full Name" value={form.name} onChange={set('name')} placeholder="Jane Smith" required autoFocus />
+        <Field label="Organization Name" value={form.org_name} onChange={set('org_name')} placeholder="Acme Pharma" required />
+        <Field label="Work Email" type="email" value={form.email} onChange={set('email')} placeholder="jane@acme.com" required />
+        <Field label="Password" type="password" value={form.password} onChange={set('password')} placeholder="Min. 8 characters" required minLength={8} />
+
         <button
           type="submit"
           disabled={loading}
-          className="w-full flex items-center justify-center gap-2 py-2.5 px-4 bg-brand-500 hover:bg-brand-600 disabled:opacity-60 text-white text-sm font-medium rounded-lg transition-colors"
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            gap: '8px',
+            width: '100%',
+            height: '46px',
+            background: loading ? '#6B7A9A' : 'linear-gradient(135deg, #1A3680, #1D4ED8)',
+            color: 'white',
+            border: 'none',
+            borderRadius: '10px',
+            fontSize: '15px',
+            fontWeight: 600,
+            cursor: loading ? 'not-allowed' : 'pointer',
+            letterSpacing: '-0.01em',
+            boxShadow: loading ? 'none' : '0 1px 3px rgba(29,78,216,0.4)',
+            fontFamily: 'inherit',
+          }}
         >
-          {loading && <Loader2 className="w-4 h-4 animate-spin" />}
+          {loading && <Loader2 style={{ width: '16px', height: '16px' }} />}
           Create account
         </button>
       </form>
 
-      <p className="mt-6 text-center text-sm text-slate-500">
+      <p style={{ textAlign: 'center', fontSize: '13px', color: '#6478A0', marginTop: '24px' }}>
         Already have an account?{' '}
-        <Link href="/login" className="text-brand-600 font-medium hover:underline">
+        <Link href="/login" style={{ color: '#0284C7', fontWeight: 600, textDecoration: 'none' }}>
           Sign in
         </Link>
       </p>

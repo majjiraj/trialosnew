@@ -1,0 +1,41 @@
+version: "3.9"
+
+services:
+  quality-postgres:
+    image: postgres:16-alpine
+    environment:
+      POSTGRES_USER: quality
+      POSTGRES_PASSWORD: quality_dev
+      POSTGRES_DB: quality_db
+    volumes:
+      - quality_pg_data:/var/lib/postgresql/data
+      # Runs init-db.sql on first container start to enable uuid-ossp extension
+      - ./init-db.sql:/docker-entrypoint-initdb.d/01-init.sql:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U quality -d quality_db"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+    restart: unless-stopped
+
+  quality-service:
+    build: .
+    ports:
+      - "8016:8016"
+    environment:
+      - DATABASE_URL=postgresql://quality:quality_dev@quality-postgres:5432/quality_db
+      - SERVICE_PORT=8016
+      - LOG_LEVEL=INFO
+    depends_on:
+      quality-postgres:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "python3 -c \"import urllib.request; urllib.request.urlopen('http://localhost:8016/health')\""]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 15s
+    restart: unless-stopped
+
+volumes:
+  quality_pg_data:

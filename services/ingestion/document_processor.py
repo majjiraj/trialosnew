@@ -48,6 +48,7 @@ _CT_KEYWORDS = {"controlled terms", "controlled terminology", "codelist", "ct/fo
 # Doc types that have reliable ToC → use structured extraction
 STRUCTURED_DOC_TYPES = {
     "sdtm_ig", "adam_ig", "protocol", "sap", "csr", "dmp", "lab_manual", "icf",
+    "usdm_ig", "ich_guideline", "controlled_terminology",
 }
 
 # All SDTM domain acronyms (used for domain detection in section paths)
@@ -170,6 +171,21 @@ def prepare_embedding_text(chunk: dict) -> str:
                     emb_prefix += f"In section: {section}. "
                 return emb_prefix + text
 
+    elif ctype == "statistics":
+        # XPT statistics chunk — prepend a rich keyword preamble so semantic search
+        # retrieves this for queries like "how many patients", "treatment arms", etc.
+        domain  = meta.get("domain") or ""
+        n_subj  = meta.get("unique_subjects")
+        n_sites = meta.get("unique_sites")
+        parts   = ["Clinical dataset statistics"]
+        if domain:
+            parts.append(f"SDTM {domain} domain")
+        if n_subj is not None:
+            parts.append(f"{n_subj} unique patients")
+        if n_sites is not None:
+            parts.append(f"{n_sites} sites")
+        return ". ".join(parts) + ".\n" + text
+
     else:  # text
         return text
 
@@ -258,6 +274,97 @@ def _split_variable_table_rows(
 
 # ── Structured PDF extraction (ToC-driven) ───────────────────────────────────
 
+# Regex patterns that identify numbered section headings (e.g. "1.", "2.3", "A.1")
+_SECTION_HEADING_RE = re.compile(
+    r"^(?:"
+    r"\d{1,2}(?:\.\d{1,2}){0,3}"   # 1  /  1.2  /  1.2.3
+    r"|[A-Z]\.\d{1,2}"             # A.1
+    r")\s+[A-Z][^\n]{3,80}$",
+    re.MULTILINE,
+)
+
+def _extract_toc_from_headings(doc) -> list:
+    """
+    Build a synthetic ToC by scanning each page for large-font or numbered
+    headings.  Returns a list in PyMuPDF toc format: [(level, title, page_1idx)].
+
+    Strategy (in order of priority):
+    1. Use span font-size to detect headings: spans whose font-size is
+       significantly larger than the body text median are treated as headings.
+       Level 1 = largest; Level 2 = second-largest font class; Level 3+ rest.
+    2. If font-size approach yields < 3 headings, fall back to regex matching
+       numbered section patterns in the plain text.
+    """
+    from statistics import median
+
+    all_sizes: list[float] = []
+    page_spans: list[list[dict]] = []
+
+    for page in doc:
+        spans: list[dict] = []
+        try:
+            blocks = page.get_text("dict", flags=16)["blocks"]
+        except Exception:
+            page_spans.append(spans)
+            continue
+        for blk in blocks:
+            for line in blk.get("lines", []):
+                for span in line.get("spans", []):
+                    txt = span.get("text", "").strip()
+                    sz  = span.get("size", 0)
+                    if txt and sz > 0:
+                        all_sizes.append(sz)
+                        spans.append({"text": txt, "size": sz, "page": page.number + 1})
+        page_spans.append(spans)
+
+    if not all_sizes:
+        return []
+
+    body_size = median(all_sizes)
+    # Collect distinct large sizes (>15% above median)
+    large_sizes = sorted({s for s in all_sizes if s > body_size * 1.15}, reverse=True)
+    if not large_sizes:
+        return []
+
+    # Map size → heading level (1 = largest)
+    size_level: dict[float, int] = {}
+    for i, sz in enumerate(large_sizes[:3]):
+        size_level[sz] = i + 1
+
+    toc: list = []
+    seen_titles: set = set()
+    for spans in page_spans:
+        for sp in spans:
+            lvl = size_level.get(sp["size"])
+            if lvl is None:
+                continue
+            title = sp["text"].strip()
+            # Skip very short or all-numeric titles (page numbers etc.)
+            if len(title) < 4 or title.isdigit():
+                continue
+            key = (sp["page"], title[:40])
+            if key in seen_titles:
+                continue
+            seen_titles.add(key)
+            toc.append((lvl, title, sp["page"]))
+
+    if len(toc) >= 3:
+        return toc
+
+    # Fallback: regex on plain text
+    toc = []
+    for page in doc:
+        text = page.get_text("text") or ""
+        for m in _SECTION_HEADING_RE.finditer(text):
+            title = m.group().strip()
+            # Infer level from depth of dotted number
+            first_token = title.split()[0]
+            dots = first_token.count(".")
+            lvl = min(dots + 1, 3)
+            toc.append((lvl, title, page.number + 1))
+    return toc
+
+
 def _chunk_structured_pdf_sync(
     content: bytes, doc_type: str, chunk_size: int, overlap: int
 ) -> list[dict]:
@@ -286,6 +393,11 @@ def _chunk_structured_pdf(
     3. After all pages: chunk each section's prose with a sliding window.
     4. Detect figure captions adjacent to image bounding boxes.
 
+    If the PDF has fewer than 5 ToC entries (e.g. USDM IG with sparse embedded
+    bookmarks), falls back to _extract_sections_from_text which detects headings
+    by font-size heuristics and numbered-section patterns before giving up to
+    the page-by-page fallback.
+
     Tables and figures each get content_type metadata; text chunks carry
     the full hierarchical section path so retrieval has rich context.
     """
@@ -295,9 +407,14 @@ def _chunk_structured_pdf(
     toc = doc.get_toc()
 
     if len(toc) < 5:
-        doc.close()
-        chunks, _ = _chunk_pdf_file(path, chunk_size, overlap)
-        return chunks
+        # Try heading-based section extraction before giving up
+        synthetic_toc = _extract_toc_from_headings(doc)
+        if len(synthetic_toc) >= 3:
+            toc = synthetic_toc
+        else:
+            doc.close()
+            chunks, _ = _chunk_pdf_file(path, chunk_size, overlap)
+            return chunks
 
     page_map = _build_page_section_map(toc, len(doc))
 
@@ -395,36 +512,56 @@ def _chunk_structured_pdf(
                         continue
                     t = btext.strip()
                     if t:
-                        prose_buckets.setdefault(sec_path, []).append(t)
+                        prose_buckets.setdefault(sec_path, []).append((page_num + 1, t))
             else:
                 t = quick_text.strip()
                 if t:
-                    prose_buckets.setdefault(sec_path, []).append(t)
+                    prose_buckets.setdefault(sec_path, []).append((page_num + 1, t))
 
     finally:
         doc.close()
 
     # ── Chunk prose buckets ──────────────────────────────────────────────────
-    for sec_path, text_blocks in prose_buckets.items():
+    for sec_path, page_text_pairs in prose_buckets.items():
         meta       = bucket_meta.get(sec_path, {})
         domain     = meta.get("domain")
         first_page = meta.get("page_start", 1)
         prefix     = f"[{sec_path}]\n"
         eff_size   = max(chunk_size - len(prefix), 400)
 
-        prose = "\n\n".join(text_blocks)
+        prose = "\n\n".join(t for _, t in page_text_pairs)
+
+        # For long sections, track which pages each window falls on
+        # by building a cumulative char→page index
+        char_page: list[int] = []
+        for pg, t in page_text_pairs:
+            char_page.extend([pg] * (len(t) + 2))  # +2 for "\n\n" separator
+
+        def _page_at(char_pos: int) -> int:
+            if not char_page or char_pos >= len(char_page):
+                return first_page
+            return char_page[char_pos]
+
+        char_offset = 0
         for window in _windows(prose, eff_size, overlap):
+            win_start_page = _page_at(char_offset)
+            win_end_page   = _page_at(min(char_offset + len(window) - 1, len(char_page) - 1))
+            page_ref       = win_start_page if win_start_page == win_end_page else win_start_page
+            page_range     = f"p{win_start_page}" if win_start_page == win_end_page else f"p{win_start_page}-{win_end_page}"
             all_chunks.append({
                 "text":    prefix + window,
                 "section": sec_path,
-                "page":    first_page,
+                "page":    page_ref,
                 "metadata": {
                     "content_type": "text",
                     "section_path": sec_path,
                     "domain":       domain,
-                    "page_start":   first_page,
+                    "page_start":   win_start_page,
+                    "page_end":     win_end_page,
+                    "page_range":   page_range,
                 },
             })
+            char_offset += max(eff_size - overlap, 1)
 
     return all_chunks
 
@@ -699,6 +836,8 @@ def chunk_xpt(content: bytes, filename: str = "", doc_type: str = "sdtm_dataset"
       • 1 variable-definitions table chunk (content_type='table', one row per variable)
       • N table_row chunks — _XPT_ROWS_PER_CHUNK rows each, with variable_labels metadata
     """
+    import os
+    import tempfile
     import pandas as pd
 
     # ── Extract variable labels from XPT namestr records ─────────────────────
@@ -718,27 +857,62 @@ def chunk_xpt(content: bytes, filename: str = "", doc_type: str = "sdtm_dataset"
         pass  # labels stays {} — embedding preamble will fall back to plain col=val
 
     # ── Read DataFrame ────────────────────────────────────────────────────────
+    parse_errors: list[str] = []
     try:
         df = pd.read_sas(io.BytesIO(content), format="xport", encoding="utf-8")
-    except Exception:
+    except Exception as exc_utf8:
+        parse_errors.append(f"pandas utf-8: {exc_utf8}")
         try:
             df = pd.read_sas(io.BytesIO(content), format="xport", encoding="latin-1")
-        except Exception as exc:
-            log.warning("xpt.parse_failed", error=str(exc))
-            return [{
-                "text": f"SAS XPT file (parse failed: {exc})",
-                "section": "header",
-                "page": 1,
-                "is_table": False,
-                "metadata": {"content_type": "text"},
-            }]
+        except Exception as exc_latin1:
+            parse_errors.append(f"pandas latin-1: {exc_latin1}")
+            # Fallback: pyreadstat handles some valid XPT variants pandas rejects.
+            try:
+                import pyreadstat
 
-    # Infer domain from filename (e.g. DM.xpt, LB.xpt)
+                tmp_path = ""
+                try:
+                    with tempfile.NamedTemporaryFile(suffix=".xpt", delete=False) as tmp:
+                        tmp.write(content)
+                        tmp_path = tmp.name
+                    df, meta = pyreadstat.read_xport(tmp_path)
+                finally:
+                    if tmp_path and os.path.exists(tmp_path):
+                        os.remove(tmp_path)
+
+                # Backfill labels from pyreadstat metadata if namestr read failed.
+                if not labels:
+                    try:
+                        labels = {
+                            col: (meta.column_labels[idx] or "")
+                            for idx, col in enumerate(df.columns)
+                            if idx < len(meta.column_labels) and meta.column_labels[idx]
+                        }
+                    except Exception:
+                        pass
+            except Exception as exc_pyreadstat:
+                parse_errors.append(f"pyreadstat: {exc_pyreadstat}")
+                merged = " | ".join(parse_errors)
+                log.warning("xpt.parse_failed", error=merged)
+                return [{
+                    "text": f"SAS XPT file (parse failed: {merged})",
+                    "section": "header",
+                    "page": 1,
+                    "is_table": False,
+                    "metadata": {"content_type": "text"},
+                }]
+
+    # Infer domain from filename (e.g. DM.xpt, LB.xpt, study_ae.xpt, AE_2024.xpt)
     domain = ""
     if filename:
-        stem = filename.upper().split(".")[0].split("_")[-1]
-        if stem in SDTM_DOMAINS:
-            domain = stem
+        stem_parts = filename.upper().split(".")[0].split("_")
+        # Check each segment; prefer longer matches (e.g. 'DM' over 'D' if both were valid)
+        domain = next((p for p in stem_parts if p in SDTM_DOMAINS), "")
+    # Fallback: if DOMAIN column present in data, use its first non-null value
+    if not domain and "DOMAIN" in df.columns:
+        first_domain = df["DOMAIN"].dropna().astype(str).str.upper().iloc[0:1]
+        if len(first_domain) and first_domain.iloc[0] in SDTM_DOMAINS:
+            domain = first_domain.iloc[0]
 
     cols = list(df.columns)
     n_rows, n_cols = df.shape
@@ -781,15 +955,57 @@ def chunk_xpt(content: bytes, filename: str = "", doc_type: str = "sdtm_dataset"
         stats_lines.append(f"Unique subjects (USUBJID): {n_unique_subjects}")
         stats_lines.append(f"Unique patients: {n_unique_subjects}")
     if "SITEID" in df.columns:
-        stat_meta["unique_sites"] = int(df["SITEID"].nunique())
+        site_counts = df["SITEID"].value_counts()
+        stat_meta["unique_sites"] = int(site_counts.shape[0])
         stats_lines.append(f"Unique sites (SITEID): {stat_meta['unique_sites']}")
-    # Date range if any visit/start date column present
-    for date_col in ("RFSTDTC", "VISITDTC", "EXSTDTC", "AESTDTC"):
-        if date_col in df.columns:
-            non_null = df[date_col].dropna().astype(str)
-            if len(non_null):
-                stats_lines.append(f"{date_col} range: {non_null.min()} to {non_null.max()}")
+        top_sites = "  ".join(f"{s}({c})" for s, c in site_counts.head(5).items())
+        stats_lines.append(f"Site distribution (top 5): {top_sites}")
+    # Arms / treatment groups
+    for arm_col in ("ARMCD", "ARM", "TRTP", "TRTPN"):
+        if arm_col in df.columns:
+            arm_counts = df[arm_col].value_counts()
+            stat_meta["treatment_arms"] = arm_counts.to_dict()
+            arm_dist = "  ".join(f"{a}({c})" for a, c in arm_counts.items())
+            stats_lines.append(f"Treatment arms ({arm_col}): {arm_dist}")
             break
+    # Date ranges for ALL date-like columns
+    _date_cols = [c for c in df.columns if c.upper().endswith("DTC") or "DATE" in c.upper()]
+    for date_col in _date_cols[:6]:
+        non_null = df[date_col].dropna().astype(str)
+        if len(non_null):
+            stats_lines.append(f"{date_col} range: {non_null.min()} to {non_null.max()}")
+    # Key flag/severity/outcome distributions — covers AE, DM, DS, DD domains
+    for dist_col in ("AESEV", "AESER", "AESDTH", "AEOUT", "AEREL", "AEACN",
+                     "DTHFL", "DSDECOD", "DSTERM", "DDTERM", "EXDOSE"):
+        if dist_col in df.columns:
+            vc = df[dist_col].dropna().value_counts()
+            dist_str = "  ".join(f"{v}:{c}" for v, c in vc.items())
+            stats_lines.append(f"{dist_col} distribution: {dist_str}")
+    # DM: explicit death count for clarity
+    if "DTHFL" in df.columns:
+        n_deaths = int((df["DTHFL"].dropna() == "Y").sum())
+        stats_lines.append(f"Deaths (DTHFL=Y): {n_deaths}")
+        if "DTHDTC" in df.columns:
+            death_dates = df.loc[df["DTHFL"] == "Y", "DTHDTC"].dropna().astype(str)
+            if len(death_dates):
+                stats_lines.append(f"DTHDTC range (deaths): {death_dates.min()} to {death_dates.max()}")
+    # DS: count death-related disposition terms
+    if "DSDECOD" in df.columns:
+        _death_ds = df[df["DSDECOD"].str.upper().str.contains("DEATH|DIED|FATAL", na=False)]
+        if len(_death_ds):
+            stats_lines.append(f"DS death records (DSDECOD contains DEATH/DIED/FATAL): {len(_death_ds)}")
+    # DD: summarise death detail records if domain is DD
+    if domain == "DD" and "DDTERM" in df.columns:
+        dd_terms = df["DDTERM"].dropna().value_counts()
+        dd_str = "  ".join(f"{v}:{c}" for v, c in dd_terms.head(10).items())
+        stats_lines.append(f"DDTERM distribution: {dd_str}")
+    # Missing rate for key variables
+    _key_vars = [c for c in ("USUBJID", "AETERM", "AEBODSYS", "LBTESTCD", "VSTESTCD") if c in df.columns]
+    if _key_vars:
+        missing_rates = "  ".join(
+            f"{c}:{int(df[c].isna().sum())}" for c in _key_vars
+        )
+        stats_lines.append(f"Missing values (key cols): {missing_rates}")
     if domain:
         stats_lines.append(f"Domain: {domain}")
     stats_lines.append(f"Variables: {n_cols}")
@@ -832,8 +1048,9 @@ def chunk_xpt(content: bytes, filename: str = "", doc_type: str = "sdtm_dataset"
     # ── Table-row chunks ──────────────────────────────────────────────────────
     for start in range(0, n_rows, _XPT_ROWS_PER_CHUNK):
         batch = df.iloc[start: start + _XPT_ROWS_PER_CHUNK]
+        # Trailing '  ' ensures the last field is caught by regex `var=val  ` patterns
         rows_text = "\n".join(
-            "  ".join(f"{c}={batch.at[idx, c]}" for c in cols)
+            "  ".join(f"{c}={batch.at[idx, c]}" for c in cols) + "  "
             for idx in batch.index
         )
         chunks.append({
@@ -867,6 +1084,26 @@ def chunk_text(text: str, doc_type: str,
 # ── General table row splitter ────────────────────────────────────────────────
 
 _GENERAL_ROW_MIN = 5   # only row-split tables that have at least this many data rows
+_ABBREV_BATCH_SIZE = 50  # abbreviation rows consolidated to this batch size
+
+
+_ABBREV_SECTION_SIGNALS = {"abbreviation", "abbreviations", "acronym", "acronyms", "glossary"}
+
+
+def _is_abbreviation_table(header_cells: list[str], section: str = "") -> bool:
+    """Return True if the table looks like an abbreviation/glossary table.
+
+    Checks column headers first; falls back to section path keywords so that
+    continuation pages (where PyMuPDF omits the header row) are still detected.
+    """
+    abbrev_signals = {"abbreviation", "abbreviations", "acronym", "acronyms",
+                      "term", "terms", "definition", "definitions", "meaning"}
+    normalized = {h.lower().strip() for h in header_cells if h}
+    if bool(normalized & abbrev_signals) and len(header_cells) <= 3:
+        return True
+    # Fallback: section path contains abbreviation/glossary keyword
+    section_lower = section.lower()
+    return any(sig in section_lower for sig in _ABBREV_SECTION_SIGNALS)
 
 
 def _split_general_table_rows(
@@ -876,6 +1113,10 @@ def _split_general_table_rows(
     Row-split any non-SDTM table that has ≥5 data rows AND a text-based first
     column (not purely numeric). Each row becomes a `table_row` chunk with a
     `row_data` dict in metadata for richer key-value embedding.
+
+    Abbreviation/glossary tables are batched (_ABBREV_BATCH_SIZE rows per chunk)
+    instead of one row per chunk to prevent vector search pollution. Continuation
+    pages (no repeated header) are detected via the section path.
 
     Returns None to fall back to single-chunk path when the table doesn't qualify.
     """
@@ -887,6 +1128,37 @@ def _split_general_table_rows(
     header_cells = [c.strip() for c in header_row.strip("|").split("|")]
     sep_row      = "| " + " | ".join(["---"] * len(header_cells)) + " |"
     data_rows    = rows[1:]
+
+    # Abbreviation tables: consolidate to batches to avoid vector search pollution
+    if _is_abbreviation_table(header_cells, section):
+        prefix = f"[{section}]\n" if section else ""
+        chunks = []
+        for i in range(0, len(data_rows), _ABBREV_BATCH_SIZE):
+            batch = data_rows[i:i + _ABBREV_BATCH_SIZE]
+            lines = []
+            for row in batch:
+                cells = [c.strip() for c in row.strip("|").split("|")]
+                if len(cells) >= 2 and cells[0]:
+                    lines.append(f"{cells[0]}: {cells[1]}")
+            if not lines:
+                continue
+            batch_text = f"{prefix}Abbreviations and definitions:\n" + "\n".join(lines)
+            chunks.append({
+                "text":     batch_text,
+                "section":  section,
+                "page":     page,
+                "is_table": True,
+                "metadata": {
+                    "content_type": "table_row",
+                    "section_path": section,
+                    "domain":       domain,
+                    "columns":      columns,
+                    "row_count":    len(lines),
+                    "page":         page,
+                    "is_abbreviation_batch": True,
+                },
+            })
+        return chunks if chunks else None
 
     chunks = []
     for row in data_rows:
