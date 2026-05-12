@@ -65,13 +65,13 @@ const DOC_LABEL: Record<string, string> = {
 
 function stdRadius(n: KGNode): number {
   switch (n.doc_type) {
-    case 'usdm_ig':  return 20
-    case 'sdtm_ig':  return 16
-    case 'adam_ig':  return 14
-    case 'ich_guideline': return 14
-    case 'controlled_terminology': return 10
-    case 'cdash_domain': return 7
-    default: return 12
+    case 'usdm_ig':  return 34
+    case 'sdtm_ig':  return 28
+    case 'adam_ig':  return 26
+    case 'ich_guideline': return 26
+    case 'controlled_terminology': return 20
+    case 'cdash_domain': return 14
+    default: return 22
   }
 }
 
@@ -87,11 +87,11 @@ function stdOpacity(n: KGNode): number {
 }
 
 function sponsorRadius(n: KGNode): number {
-  if (n.layer === 'protocol')   return 18
-  if (n.layer === 'usdm')       return 15
-  if (n.doc_type === 'crf' || n.doc_type === 'sap') return 13
-  if (n.doc_type === 'csr')     return 12
-  return 10
+  if (n.layer === 'protocol')   return 32
+  if (n.layer === 'usdm')       return 28
+  if (n.doc_type === 'crf' || n.doc_type === 'sap') return 24
+  if (n.doc_type === 'csr')     return 22
+  return 20
 }
 
 function sponsorColor(n: KGNode): string {
@@ -164,14 +164,14 @@ function computePositions(
       color: '#1A3680',
       opacity: stdOpacity(n),
       label1: docTag,
-      label2: raw !== docTag ? raw.slice(0, 14) : undefined,
+      label2: raw !== docTag ? raw.slice(0, 20) : undefined,
       node: n,
     })
   })
 
-  // CDASH domain nodes: compact 6-column micro-grid in lower-left of standards zone
-  const CDASH_COLS = 6, CDASH_COL_GAP = 37, CDASH_ROW_GAP = 34
-  const cdashStartX = 28, cdashStartY = 348
+  // CDASH domain nodes: compact 5-column micro-grid in lower-left of standards zone
+  const CDASH_COLS = 5, CDASH_COL_GAP = 56, CDASH_ROW_GAP = 52
+  const cdashStartX = 34, cdashStartY = 340
   cdashStds.forEach((n, i) => {
     const col = i % CDASH_COLS
     const row = Math.floor(i / CDASH_COLS)
@@ -179,7 +179,7 @@ function computePositions(
       id: n.id,
       x: cdashStartX + col * CDASH_COL_GAP,
       y: cdashStartY + row * CDASH_ROW_GAP,
-      r: 7,
+      r: 14,
       color: '#10B981',
       opacity: 0.80,
       label1: n.label,
@@ -201,7 +201,7 @@ function computePositions(
       r,
       color: sponsorColor(n),
       opacity: sponsorOpacity(n),
-      label1: sn.length > 12 ? sn.slice(0, 10) + '…' : sn,
+      label1: sn.length > 16 ? sn.slice(0, 14) + '…' : sn,
       label2: n.version ? `v${n.version}` : undefined,
       node: n,
     })
@@ -245,7 +245,7 @@ function computePositions(
       color: sponsorColor(n),
       opacity: sponsorOpacity(n),
       label1: tag,
-      label2: shortLabel(n.label).slice(0, 10),
+      label2: shortLabel(n.label).slice(0, 14),
       node: n,
     })
   })
@@ -459,7 +459,7 @@ export default function KnowledgeGraphPage() {
             <div style={{ fontSize: 11, fontWeight: 700, color: '#94A3B8', letterSpacing: '0.08em', marginBottom: 7, textTransform: 'uppercase' }}>Crosswalks</div>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#374151', marginBottom: 4, cursor: 'pointer' }}>
               <input type="checkbox" checked={showCrosswalks} onChange={() => setShowCrosswalks(v => !v)} style={{ accentColor: '#0EA5E9', width: 13, height: 13 }} />
-              Standards ↔ Sponsor
+              Standards governance
             </label>
             <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13, color: '#374151', marginBottom: 4, cursor: 'pointer' }}>
               <input type="checkbox" checked={showSponsorEdges} onChange={() => setShowSponsorEdges(v => !v)} style={{ accentColor: '#64748B', width: 13, height: 13 }} />
@@ -502,7 +502,7 @@ export default function KnowledgeGraphPage() {
             ))}
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5, marginTop: 8 }}>
               <svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="#0EA5E9" strokeWidth="1.5" strokeDasharray="5,3"/></svg>
-              <span style={{ fontSize: 11, color: '#4B5563' }}>Governs (crosswalk)</span>
+              <span style={{ fontSize: 11, color: '#4B5563' }}>Governs</span>
             </div>
             <div style={{ display: 'flex', alignItems: 'center', gap: 7, marginBottom: 5 }}>
               <svg width="22" height="8"><line x1="0" y1="4" x2="22" y2="4" stroke="#1A3680" strokeWidth="2"/></svg>
@@ -585,7 +585,7 @@ export default function KnowledgeGraphPage() {
               {/* Crosswalk label */}
               {showCrosswalks && visibleEdges.some(e => e.edge_type === 'governs') && (
                 <text x="400" y="150" textAnchor="middle" fontSize="9" fill="#0EA5E9" fontFamily="DM Sans,sans-serif" opacity="0.8">
-                  Standards ↔ Sponsor crosswalks
+                  Standards governance
                 </text>
               )}
 
@@ -690,7 +690,7 @@ export default function KnowledgeGraphPage() {
                     <text
                       x={0} y={p.label2 ? -3 : 1}
                       textAnchor="middle"
-                      fontSize={Math.max(5.5, Math.min(8, p.r * 0.45))}
+                      fontSize={Math.max(7, Math.min(12, p.r * 0.38))}
                       fill="white"
                       fontFamily="Fira Code, monospace"
                       fontWeight="600"
@@ -703,7 +703,7 @@ export default function KnowledgeGraphPage() {
                       <text
                         x={0} y={p.r * 0.55}
                         textAnchor="middle"
-                        fontSize={Math.max(4.5, Math.min(7, p.r * 0.38))}
+                        fontSize={Math.max(6, Math.min(10, p.r * 0.30))}
                         fill="rgba(255,255,255,0.8)"
                         fontFamily="Fira Code, monospace"
                         pointerEvents="none"

@@ -7736,10 +7736,14 @@ async def get_knowledge_graph(
     edges: list[dict] = []
     prot_id_set = {p["id"] for p in protocol_nodes}
 
-    # governs: every standard (including CDASH domains) → every protocol (bounded at 500)
+    # governs: only protocol-relevant standards → protocol nodes
+    PROTOCOL_GOVERNING_TYPES = {"usdm_ig", "ich_guideline", "controlled_terminology"}
+    protocol_governing_stds = [
+        s for s in standards_nodes
+        if s.get("doc_type") in PROTOCOL_GOVERNING_TYPES
+    ]
     governs_count = 0
-    all_standards = standards_nodes + cdash_nodes
-    for std in all_standards:
+    for std in protocol_governing_stds + cdash_nodes:
         for prot in protocol_nodes:
             if governs_count >= 500:
                 break
@@ -7747,6 +7751,32 @@ async def get_knowledge_graph(
                            "source": std["id"], "target": prot["id"],
                            "edge_type": "governs", "label": "governs"})
             governs_count += 1
+
+    # governs: SDTM IG → sdtm_dataset downstream nodes
+    sdtm_ig_nodes = [s for s in standards_nodes if s.get("doc_type") == "sdtm_ig"]
+    adam_ig_nodes  = [s for s in standards_nodes if s.get("doc_type") == "adam_ig"]
+    sdtm_ds_nodes  = [d for d in ds_nodes if d.get("doc_type") == "sdtm_dataset"]
+    adam_ds_nodes  = [d for d in ds_nodes if d.get("doc_type") == "adam_dataset"]
+
+    for std in sdtm_ig_nodes:
+        for ds in sdtm_ds_nodes:
+            edges.append({"id": f"governs-{std['id']}-{ds['id']}",
+                           "source": std["id"], "target": ds["id"],
+                           "edge_type": "governs", "label": "governs"})
+
+    for std in adam_ig_nodes:
+        for ds in adam_ds_nodes:
+            edges.append({"id": f"governs-{std['id']}-{ds['id']}",
+                           "source": std["id"], "target": ds["id"],
+                           "edge_type": "governs", "label": "governs"})
+
+    # governs: USDM IG → USDM model nodes (USDM IG defines the USDM schema)
+    usdm_ig_nodes = [s for s in standards_nodes if s.get("doc_type") == "usdm_ig"]
+    for std in usdm_ig_nodes:
+        for u in usdm_nodes:
+            edges.append({"id": f"governs-{std['id']}-{u['id']}",
+                           "source": std["id"], "target": u["id"],
+                           "edge_type": "governs", "label": "governs"})
 
     # converts_to: protocol → USDM via protocol_doc_id
     for u in usdm_nodes:

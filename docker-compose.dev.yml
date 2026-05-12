@@ -12,6 +12,12 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trialo -d trialo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   minio:
     image: minio/minio:latest

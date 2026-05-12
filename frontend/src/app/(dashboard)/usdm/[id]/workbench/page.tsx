@@ -4,8 +4,10 @@ import { useParams, useRouter } from 'next/navigation'
 import { useAuth } from '@/components/layout/AuthContext'
 import {
   ChevronLeft, ChevronRight, Loader2, Download, FileText, AlertCircle,
-  ChevronDown, Info, ExternalLink, Activity, GitBranch,
+  ChevronDown, Info, Activity,
   Braces, X, Copy, Check, BarChart2, ClipboardList, Brain, CheckCircle, Shield,
+  Edit2, Save, XCircle,
+  Maximize2, RotateCcw, RotateCw, Wand2,
 } from 'lucide-react'
 import { clsx } from 'clsx'
 import { AgentInsightTabs } from '@/components/agent/AgentInsightTabs'
@@ -287,6 +289,239 @@ function PaneLabel({ children }: { children: React.ReactNode }) {
   return <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-1.5">{children}</p>
 }
 
+// ── JSON structural diagnostics ───────────────────────────────────────────────
+
+type Diagnostic = {
+  type: 'error' | 'warning' | 'suggestion'
+  message: string
+  ref?: string
+  fix?: { label: string; value: any; strategy: 'merge' | 'replace' }
+}
+
+function diagnoseSection(sectionKey: string, parsed: any): Diagnostic[] {
+  const diags: Diagnostic[] = []
+  switch (sectionKey) {
+    case 'meta': {
+      if (!parsed?.studyTitle)
+        diags.push({ type: 'error', message: 'studyTitle is required', ref: 'USDM v4 §3.1 / ICH M11 §4.1',
+          fix: { label: 'Add studyTitle placeholder', value: { studyTitle: 'Full Protocol Title — TBD' }, strategy: 'merge' } })
+      if (!parsed?.studyPhase)
+        diags.push({ type: 'error', message: 'studyPhase required (e.g. C15602 = Phase III)', ref: 'ICH M11 §6.1',
+          fix: { label: 'Add Phase III studyPhase', value: { studyPhase: { code: 'C15602', decode: 'Phase III' } }, strategy: 'merge' } })
+      if (!parsed?.studyType)
+        diags.push({ type: 'warning', message: 'studyType is recommended (Interventional / Observational)',
+          fix: { label: 'Set Interventional', value: { studyType: { decode: 'Interventional' } }, strategy: 'merge' } })
+      break
+    }
+    case 'studyIdentifiers': {
+      const ids = Array.isArray(parsed) ? parsed : []
+      if (!ids.length)
+        diags.push({ type: 'error', message: 'At least one identifier required', ref: 'USDM v4 §4.2',
+          fix: { label: 'Add NCT identifier', value: [{ studyIdentifier: 'NCT00000000', scopeId: 'NCT' }], strategy: 'replace' } })
+      else if (!ids[0]?.scopeId)
+        diags.push({ type: 'error', message: 'identifier[0].scopeId missing — NCT / EudraCT / JAPIC expected', ref: 'USDM v4 §4.2',
+          fix: { label: 'Add scopeId: NCT', value: ids.map((x: any, i: number) => i === 0 ? { ...x, scopeId: 'NCT' } : x), strategy: 'replace' } })
+      break
+    }
+    case 'studyProtocols': {
+      const vers = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : [])
+      if (!vers.length)
+        diags.push({ type: 'error', message: 'Protocol document version reference required', ref: 'ICH M11 §4.2',
+          fix: { label: 'Add version placeholder', value: [{ versionIdentifier: '1.0', briefTitle: 'TBD', officialTitle: 'TBD' }], strategy: 'replace' } })
+      break
+    }
+    case 'objectives': {
+      const objs = Array.isArray(parsed) ? parsed : []
+      if (!objs.length)
+        diags.push({ type: 'error', message: 'At least one objective required', ref: 'ICH M11 §5.1',
+          fix: { label: 'Add primary objective', value: [{ level: { decode: 'Primary' }, objectiveDescription: 'TBD' }], strategy: 'replace' } })
+      else {
+        const hasPrimary = objs.some((o: any) =>
+          (o.level?.decode || o.objectiveLevel?.decode || '').toLowerCase().includes('primary'))
+        if (!hasPrimary)
+          diags.push({ type: 'warning', message: 'No primary objective — level.decode should be "Primary"' })
+        const noEndpoints = objs.filter((o: any) => !o.endpoints?.length && !o.objectiveEndpoints?.length)
+        if (noEndpoints.length)
+          diags.push({ type: 'suggestion', message: `${noEndpoints.length} objective(s) have no endpoints linked` })
+      }
+      break
+    }
+    case 'estimands': {
+      const est = Array.isArray(parsed) ? parsed : []
+      if (est.length && !est[0]?.populationSummary && !est[0]?.summary)
+        diags.push({ type: 'error', message: 'estimands[0].populationSummary required', ref: 'ICH E9(R1) §3.1',
+          fix: { label: 'Add populationSummary', value: est.map((e: any, i: number) => i === 0 ? { ...e, populationSummary: 'Population summary TBD' } : e), strategy: 'replace' } })
+      if (est.length && !est[0]?.variableOfInterestId && !est[0]?.variable)
+        diags.push({ type: 'error', message: 'estimands[0].variableOfInterestId required', ref: 'ICH E9(R1) §3.1' })
+      if (est.length && !est[0]?.analysisPopulationId && !est[0]?.population)
+        diags.push({ type: 'warning', message: 'estimands[0].analysisPopulationId missing', ref: 'ICH E9(R1) §3.1' })
+      break
+    }
+    case 'populations': {
+      const pops = Array.isArray(parsed) ? parsed : (parsed ? [parsed] : [])
+      if (!pops.length)
+        diags.push({ type: 'error', message: 'Study population definition required', ref: 'USDM v4 §5.1',
+          fix: { label: 'Add Full Analysis Set', value: [{ name: 'Full Analysis Set', description: 'TBD' }], strategy: 'replace' } })
+      break
+    }
+    case 'arms': {
+      const arms = Array.isArray(parsed) ? parsed : []
+      if (!arms.length)
+        diags.push({ type: 'warning', message: 'No study arms — required for interventional trials' })
+      break
+    }
+    case 'activities': {
+      const acts = Array.isArray(parsed) ? parsed : []
+      if (acts.length) {
+        const leaves = acts.filter((a: any) => !a.childIds?.length)
+        if (leaves.length && leaves.every((a: any) => !a.definedProcedures?.length))
+          diags.push({ type: 'error', message: 'Leaf activities have no definedProcedures', ref: 'USDM v4 §9.1' })
+      }
+      break
+    }
+  }
+  return diags
+}
+
+// ── JSON editor panel (inline + expanded) ─────────────────────────────────────
+
+function JsonEditorPanel({
+  draft, onChange, sectionKey, onSave, onCancel, onExpand,
+  saving, canUndo, canRedo, onUndo, onRedo, rows = 18,
+}: {
+  draft: string; onChange: (v: string) => void; sectionKey: string
+  onSave: () => void; onCancel: () => void; onExpand?: () => void
+  saving: boolean; canUndo: boolean; canRedo: boolean
+  onUndo: () => void; onRedo: () => void; rows?: number
+}) {
+  let parsed: any = null
+  let syntaxErr: string | null = null
+  try { parsed = JSON.parse(draft) } catch (e: any) {
+    syntaxErr = e.message.replace(/^JSON\s*/, '').trim()
+  }
+  const diagnostics = parsed !== null ? diagnoseSection(sectionKey, parsed) : []
+  const errors   = diagnostics.filter(d => d.type === 'error')
+  const warnings = diagnostics.filter(d => d.type === 'warning')
+  const hints    = diagnostics.filter(d => d.type === 'suggestion')
+
+  const statusOk   = !syntaxErr && diagnostics.length === 0
+  const statusWarn = !syntaxErr && errors.length === 0 && diagnostics.length > 0
+
+  function applyFix(fix: NonNullable<Diagnostic['fix']>) {
+    const next = (fix.strategy === 'merge' && parsed && typeof parsed === 'object' && !Array.isArray(parsed))
+      ? { ...parsed, ...fix.value }
+      : fix.value
+    onChange(JSON.stringify(next, null, 2))
+  }
+
+  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+    const mod = e.metaKey || e.ctrlKey
+    if (mod && !e.shiftKey && e.key === 'z') { e.preventDefault(); onUndo() }
+    else if (mod && (e.key === 'y' || (e.shiftKey && e.key === 'z'))) { e.preventDefault(); onRedo() }
+  }
+
+  return (
+    <div className="flex flex-col gap-2">
+      {/* Toolbar */}
+      <div className="flex items-center gap-1 flex-wrap">
+        <button onClick={onUndo} disabled={!canUndo} title="Undo (Ctrl+Z)"
+          className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30 transition-colors">
+          <RotateCcw className="w-3.5 h-3.5" />
+        </button>
+        <button onClick={onRedo} disabled={!canRedo} title="Redo (Ctrl+Y / Ctrl+Shift+Z)"
+          className="p-1.5 rounded-lg border border-slate-200 text-slate-500 hover:bg-slate-50 disabled:opacity-30 transition-colors">
+          <RotateCw className="w-3.5 h-3.5" />
+        </button>
+        <div className="w-px h-4 bg-slate-200 mx-0.5" />
+        <span className={clsx(
+          'flex items-center gap-1 text-[10px] font-semibold px-2 py-0.5 rounded-full',
+          statusOk   ? 'bg-emerald-50 text-emerald-700' :
+          statusWarn ? 'bg-amber-50 text-amber-700' :
+                       'bg-red-50 text-red-600',
+        )}>
+          {statusOk ? <Check className="w-3 h-3" /> : <AlertCircle className="w-3 h-3" />}
+          {syntaxErr
+            ? 'Syntax error'
+            : statusOk
+              ? 'Valid JSON'
+              : `${errors.length > 0 ? `${errors.length} error${errors.length !== 1 ? 's' : ''}` : ''}${warnings.length > 0 ? `${errors.length ? ', ' : ''}${warnings.length} warning${warnings.length !== 1 ? 's' : ''}` : ''}`
+          }
+        </span>
+        <div className="flex-1" />
+        {onExpand && (
+          <button onClick={onExpand} title="Expand editor"
+            className="p-1.5 rounded-lg border border-slate-200 text-slate-400 hover:bg-brand-50 hover:text-brand-600 hover:border-brand-200 transition-colors">
+            <Maximize2 className="w-3.5 h-3.5" />
+          </button>
+        )}
+        <button onClick={onCancel}
+          className="flex items-center gap-1 px-2 py-1 text-[11px] text-slate-500 hover:text-slate-700 border border-slate-200 rounded-lg transition-colors">
+          <X className="w-3 h-3" /> Cancel
+        </button>
+        <button onClick={onSave} disabled={saving || !!syntaxErr}
+          className="flex items-center gap-1 px-2 py-1 text-[11px] font-semibold text-white bg-brand-600 hover:bg-brand-700 rounded-lg disabled:opacity-50 transition-colors">
+          {saving ? <Loader2 className="w-3 h-3 animate-spin" /> : <Save className="w-3 h-3" />}
+          Save
+        </button>
+      </div>
+
+      {/* Textarea */}
+      <textarea
+        value={draft}
+        onChange={e => onChange(e.target.value)}
+        onKeyDown={handleKeyDown}
+        rows={rows}
+        className={clsx(
+          'w-full font-mono text-[11px] leading-relaxed border rounded-xl p-3 focus:outline-none focus:ring-2 resize-y bg-slate-950 text-slate-200',
+          syntaxErr ? 'border-red-500 focus:ring-red-400' : 'border-slate-700 focus:ring-brand-400',
+        )}
+        spellCheck={false}
+      />
+
+      {/* Diagnostics panel */}
+      {(syntaxErr || diagnostics.length > 0) && (
+        <div className="space-y-1.5 max-h-52 overflow-y-auto pr-0.5">
+          {syntaxErr && (
+            <div className="flex items-start gap-2 p-2.5 bg-red-50 border border-red-200 rounded-lg">
+              <AlertCircle className="w-3.5 h-3.5 text-red-500 flex-shrink-0 mt-0.5" />
+              <div className="min-w-0">
+                <p className="text-[11px] font-semibold text-red-700">Syntax error</p>
+                <p className="text-[10px] text-red-600 font-mono mt-0.5 break-all">{syntaxErr}</p>
+              </div>
+            </div>
+          )}
+          {[...errors, ...warnings, ...hints].map((d, i) => (
+            <div key={i} className={clsx(
+              'flex items-start gap-2 p-2.5 border rounded-lg',
+              d.type === 'error'      ? 'bg-red-50 border-red-200' :
+              d.type === 'warning'    ? 'bg-amber-50 border-amber-200' :
+                                        'bg-blue-50 border-blue-200',
+            )}>
+              <div className={clsx('w-1.5 h-1.5 rounded-full mt-1.5 flex-shrink-0',
+                d.type === 'error' ? 'bg-red-500' : d.type === 'warning' ? 'bg-amber-500' : 'bg-blue-400',
+              )} />
+              <div className="flex-1 min-w-0">
+                <p className={clsx('text-[11px]',
+                  d.type === 'error' ? 'text-red-700' : d.type === 'warning' ? 'text-amber-700' : 'text-blue-700',
+                )}>
+                  {d.message}
+                  {d.ref && <span className="ml-1.5 text-[10px] font-medium opacity-70">({d.ref})</span>}
+                </p>
+                {d.fix && (
+                  <button onClick={() => applyFix(d.fix!)}
+                    className="mt-1 flex items-center gap-1 text-[10px] font-semibold text-brand-600 hover:text-brand-800 transition-colors">
+                    <Wand2 className="w-3 h-3" /> Apply: {d.fix.label}
+                  </button>
+                )}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </div>
+  )
+}
+
 // ── Main page ─────────────────────────────────────────────────────────────────
 
 export default function WorkbenchPage() {
@@ -311,18 +546,47 @@ export default function WorkbenchPage() {
   const [jsonCopied, setJsonCopied] = useState(false)
   const [rightPaneOpen, setRightPaneOpen] = useState(true)
   const [pdfLoading, setPdfLoading] = useState(false)
+  const [sectionChanging, setSectionChanging] = useState(false)
   const [jumpTab, setJumpTab] = useState<string | null>(null)
-  const pdfIframeRef = useRef<HTMLIFrameElement>(null)
-  const insightsRef = useRef<HTMLDivElement>(null)
+  const pdfIframeRef   = useRef<HTMLIFrameElement>(null)
+  const chunksScrollRef = useRef<HTMLDivElement>(null)
+  const insightsRef    = useRef<HTMLDivElement>(null)
 
-  useEffect(() => { setSelectedChunkIdx(0) }, [selectedSection])
+  // Edit state
+  const [editMode, setEditMode] = useState(false)
+  const [editDraft, setEditDraft] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [corrections, setCorrections] = useState<any[]>([])
+  const [showExpandedEditor, setShowExpandedEditor] = useState(false)
+  const [canUndo, setCanUndo] = useState(false)
+  const [canRedo, setCanRedo] = useState(false)
+  const editHistoryRef   = useRef<string[]>([])
+  const editHistoryIdxRef = useRef<number>(-1)
+  const historyTimerRef  = useRef<ReturnType<typeof setTimeout> | null>(null)
+
+  // Approve / reject state
+  const [deciding, setDeciding] = useState<'approve' | 'reject' | null>(null)
+  const [showRejectModal, setShowRejectModal] = useState(false)
+  const [rejectNote, setRejectNote] = useState('')
+  const [restart, setRestart] = useState(false)
+  const [toast, setToast] = useState('')
+
+  useEffect(() => {
+    setSelectedChunkIdx(0)
+    setEditMode(false)
+    setSectionChanging(true)
+    setPdfLoading(true)
+    if (chunksScrollRef.current) chunksScrollRef.current.scrollTop = 0
+    const t = setTimeout(() => setSectionChanging(false), 400)
+    return () => clearTimeout(t)
+  }, [selectedSection])
 
   const load = useCallback(async () => {
     try {
       const [convData] = await Promise.all([
         gql(
           `query($id: ID!) { usdmConversion(id: $id) {
-            id name status protocolFilename protocolDocId runId
+            id name status protocolFilename protocolDocId runId approvalId
             usdmJson createdAt updatedAt confidence
           }}`,
           { id }
@@ -385,16 +649,9 @@ export default function WorkbenchPage() {
       .catch(() => {})
   }, [activeChunkForFetch?.chunk_id, conversion?.protocolDocId])
 
-  // ── Navigate PDF to active chunk page ──────────────────────────────────────
-  useEffect(() => {
-    if (sourceView !== 'pdf' || !pdfIframeRef.current || !conversion?.protocolDocId) return
-    const page = activeChunkForFetch?.page_number ?? 1
-    const newSrc = `${INGESTION_URL}/documents/${conversion.protocolDocId}/serve#page=${page}&view=FitH`
-    if (pdfIframeRef.current.src !== newSrc) {
-      setPdfLoading(true)
-      pdfIframeRef.current.src = newSrc
-    }
-  }, [sourceView, activeChunkForFetch?.page_number, conversion?.protocolDocId])
+  // PDF navigation is handled by changing the iframe `key` (see JSX below).
+  // Mutating .src when only the hash changes is a no-op in all major browsers
+  // because they treat it as a same-document navigation.
 
   // ── Derived values ──────────────────────────────────────────────────────────
 
@@ -486,6 +743,198 @@ export default function WorkbenchPage() {
     return out
   }, [usdmJson])
 
+  // ── Helper: strip UI-promoted fields before persisting ────────────────────
+  function denormalizeForSave(json: any): any {
+    if (!json || typeof json !== 'object') return json
+    const next = JSON.parse(JSON.stringify(json))
+    const UI_FIELDS = [
+      'studyVersion', 'studyRationale', 'studyPhase', 'studyType',
+      'studyProtocolVersions', 'studyTitle',
+      'studyIdentifiers', 'studyDesigns', 'businessTherapeuticAreas',
+      'organizations', 'studyRoles', 'abbreviations', 'unstructuredContents',
+    ]
+    if (next.study && typeof next.study === 'object') {
+      for (const k of UI_FIELDS) delete next.study[k]
+    }
+    return next
+  }
+
+  function setPath(obj: any, path: string, value: any): any {
+    const parts = path.split('.')
+    const clone = JSON.parse(JSON.stringify(obj))
+    let cur = clone
+    for (let i = 0; i < parts.length - 1; i++) {
+      const m = parts[i].match(/^(\w+)\[(\d+)\]$/)
+      if (m) cur = cur[m[1]][parseInt(m[2])]
+      else cur = cur[parts[i]]
+    }
+    const last = parts[parts.length - 1]
+    const lm = last.match(/^(\w+)\[(\d+)\]$/)
+    if (lm) cur[lm[1]][parseInt(lm[2])] = value
+    else cur[last] = value
+    return clone
+  }
+
+  function showToast(msg: string) {
+    setToast(msg)
+    setTimeout(() => setToast(''), 3500)
+  }
+
+  // ── Undo / redo history ─────────────────────────────────────────────────────
+
+  function recordHistory(value: string) {
+    editHistoryRef.current = editHistoryRef.current.slice(0, editHistoryIdxRef.current + 1)
+    editHistoryRef.current.push(value)
+    editHistoryIdxRef.current = editHistoryRef.current.length - 1
+    setCanUndo(editHistoryIdxRef.current > 0)
+    setCanRedo(false)
+  }
+
+  function handleDraftChange(value: string) {
+    setEditDraft(value)
+    if (historyTimerRef.current) clearTimeout(historyTimerRef.current)
+    historyTimerRef.current = setTimeout(() => recordHistory(value), 600)
+  }
+
+  function handleUndo() {
+    if (editHistoryIdxRef.current > 0) {
+      editHistoryIdxRef.current -= 1
+      const prev = editHistoryRef.current[editHistoryIdxRef.current]
+      setEditDraft(prev)
+      setCanUndo(editHistoryIdxRef.current > 0)
+      setCanRedo(true)
+    }
+  }
+
+  function handleRedo() {
+    if (editHistoryIdxRef.current < editHistoryRef.current.length - 1) {
+      editHistoryIdxRef.current += 1
+      const next = editHistoryRef.current[editHistoryIdxRef.current]
+      setEditDraft(next)
+      setCanUndo(true)
+      setCanRedo(editHistoryIdxRef.current < editHistoryRef.current.length - 1)
+    }
+  }
+
+  // ── Edit section ────────────────────────────────────────────────────────────
+
+  function startEdit() {
+    const sectionDef = USDM_SECTIONS.find(s => s.key === selectedSection)
+    const sectionValue = sectionDef?.key === 'meta'
+      ? usdmJson?.study
+      : getPath(usdmJson, sectionDef?.path || null)
+    const initial = sectionValue !== undefined ? JSON.stringify(sectionValue, null, 2) : ''
+    editHistoryRef.current = [initial]
+    editHistoryIdxRef.current = 0
+    setCanUndo(false)
+    setCanRedo(false)
+    setEditDraft(initial)
+    setEditMode(true)
+  }
+
+  function cancelEdit() {
+    setEditMode(false)
+    setShowExpandedEditor(false)
+    editHistoryRef.current = []
+    editHistoryIdxRef.current = -1
+    setCanUndo(false)
+    setCanRedo(false)
+    setEditDraft('')
+  }
+
+  async function saveEdit() {
+    const sectionDef = USDM_SECTIONS.find(s => s.key === selectedSection)
+    let parsed: any
+    try { parsed = JSON.parse(editDraft) } catch { return } // panel shows error
+
+    let updated: any
+    if (!sectionDef?.path) {
+      updated = { ...usdmJson, study: { ...usdmJson.study, ...parsed } }
+    } else {
+      updated = setPath(usdmJson, sectionDef.path, parsed)
+    }
+    setUsdmJson(updated)
+
+    const before = sectionDef?.path ? getPath(usdmJson, sectionDef.path) : usdmJson?.study
+    setCorrections(prev => [...prev, {
+      section: selectedSection,
+      usdm_path: sectionDef?.path || selectedSection,
+      before, after: parsed,
+      reason: 'manual edit in workbench',
+      reviewer_id: userId,
+      timestamp: new Date().toISOString(),
+    }])
+
+    setSaving(true)
+    try {
+      await gql(
+        `mutation($id: ID!, $usdmJson: JSON!) { updateUsdmConversion(id: $id, usdmJson: $usdmJson) { id } }`,
+        { id, usdmJson: denormalizeForSave(updated) }
+      )
+      showToast('Section saved')
+    } catch (e: any) {
+      showToast('Save failed: ' + e.message)
+    } finally {
+      setSaving(false)
+      setEditMode(false)
+      setShowExpandedEditor(false)
+    }
+  }
+
+  // ── Approve / Reject ────────────────────────────────────────────────────────
+
+  async function decide(decision: 'approved' | 'rejected') {
+    if (!conversion?.runId || !conversion?.approvalId) {
+      showToast('Missing run or approval ID — cannot submit decision')
+      return
+    }
+    setDeciding(decision === 'rejected' ? 'reject' : 'approve')
+    try {
+      if (decision !== 'rejected') {
+        await gql(
+          `mutation($id: ID!, $usdmJson: JSON!, $corrections: JSON) {
+            updateUsdmConversion(id: $id, usdmJson: $usdmJson, corrections: $corrections) { id }
+          }`,
+          { id, usdmJson: denormalizeForSave(usdmJson), corrections: corrections.length > 0 ? corrections : null }
+        )
+      }
+      const result = await gql(
+        `mutation($runId: String!, $approvalId: String!, $decision: String!, $modifiedSpec: JSON, $decidedBy: String!, $note: String, $restart: Boolean) {
+          resumeAgentRun(runId: $runId, approvalId: $approvalId, decision: $decision, modifiedSpec: $modifiedSpec, decidedBy: $decidedBy, note: $note, restart: $restart)
+        }`,
+        {
+          runId: conversion.runId,
+          approvalId: conversion.approvalId,
+          decision,
+          modifiedSpec: decision !== 'rejected'
+            ? { ...denormalizeForSave(usdmJson), _corrections: corrections }
+            : null,
+          decidedBy: userId,
+          note: rejectNote,
+          restart,
+        }
+      )
+      const nextStatus = result?.resumeAgentRun?.status
+      showToast(
+        decision === 'rejected'
+          ? 'Conversion rejected'
+          : nextStatus === 'waiting_approval'
+            ? 'Sponsor review complete — routed for CRO sign-off'
+            : 'USDM mapping approved!'
+      )
+      const optimistic = decision === 'rejected' ? 'rejected'
+        : nextStatus === 'waiting_approval' ? 'waiting_approval' : 'running'
+      setConversion((c: any) => ({ ...c, status: optimistic }))
+      setShowRejectModal(false)
+      setRejectNote('')
+      setTimeout(load, 2000)
+    } catch (e: any) {
+      showToast('Error: ' + e.message)
+    } finally {
+      setDeciding(null)
+    }
+  }
+
   // ── Loading / not found ─────────────────────────────────────────────────────
 
   if (loading) {
@@ -500,6 +949,8 @@ export default function WorkbenchPage() {
   }
 
   const shortId = id.slice(0, 8).toUpperCase()
+  const isReviewable = ['waiting_approval', 'waiting_cro_approval'].includes(conversion.status)
+  const isDone = ['approved', 'completed', 'rejected', 'failed'].includes(conversion.status)
 
   function jumpToInsight(tabId: string) {
     setJumpTab(tabId)
@@ -561,6 +1012,47 @@ export default function WorkbenchPage() {
         >
           <Download className="w-3.5 h-3.5" /> Export JSON
         </a>
+
+        {/* ── Approve / Reject ── */}
+        {isReviewable && (
+          <div className="flex items-center gap-2 pl-3 border-l border-slate-200 flex-shrink-0">
+            <button
+              onClick={() => setShowRejectModal(true)}
+              disabled={!!deciding}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-red-200 rounded-lg text-red-600 bg-red-50 hover:bg-red-100 disabled:opacity-50 transition-colors"
+            >
+              {deciding === 'reject'
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <XCircle className="w-3.5 h-3.5" />}
+              Reject
+            </button>
+            <button
+              onClick={() => decide('approved')}
+              disabled={!!deciding}
+              className="flex items-center gap-1.5 px-3 py-1.5 text-xs font-semibold border border-emerald-200 rounded-lg text-emerald-700 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-50 transition-colors"
+            >
+              {deciding === 'approve'
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <CheckCircle className="w-3.5 h-3.5" />}
+              Approve
+            </button>
+          </div>
+        )}
+
+        {/* Status badge when done */}
+        {isDone && (
+          <span className={clsx(
+            'flex items-center gap-1 px-3 py-1.5 text-xs font-semibold rounded-lg border flex-shrink-0',
+            conversion.status === 'approved' || conversion.status === 'completed'
+              ? 'bg-emerald-50 text-emerald-700 border-emerald-200'
+              : 'bg-red-50 text-red-600 border-red-200'
+          )}>
+            {conversion.status === 'approved' || conversion.status === 'completed'
+              ? <CheckCircle className="w-3.5 h-3.5" />
+              : <XCircle className="w-3.5 h-3.5" />}
+            {STATUS_LABEL[conversion.status] || conversion.status}
+          </span>
+        )}
       </div>
 
       {/* ── Three-pane body — flex: 1 1 0 with minHeight: 0 gives a DEFINITE height so iframe fills correctly ── */}
@@ -596,15 +1088,48 @@ export default function WorkbenchPage() {
 
           {/* Scrollable content */}
           <div className="flex-1 overflow-y-auto p-3 bg-white space-y-3">
-            {/* JSON block */}
-            {hasData ? (
-              <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 overflow-x-auto">
-                <JsonBlock value={sectionValue} />
+            {/* JSON block with inline editor */}
+            {editMode ? (
+              <JsonEditorPanel
+                draft={editDraft}
+                onChange={handleDraftChange}
+                sectionKey={selectedSection}
+                onSave={saveEdit}
+                onCancel={cancelEdit}
+                onExpand={() => setShowExpandedEditor(true)}
+                saving={saving}
+                canUndo={canUndo}
+                canRedo={canRedo}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                rows={16}
+              />
+            ) : hasData ? (
+              <div className="relative group">
+                <div className="bg-slate-50 border border-slate-200 rounded-xl p-3 overflow-x-auto">
+                  <JsonBlock value={sectionValue} />
+                </div>
+                {!isDone && (
+                  <button
+                    onClick={startEdit}
+                    className="absolute top-2 right-2 opacity-0 group-hover:opacity-100 flex items-center gap-1 px-2 py-1 text-[10px] font-semibold bg-white border border-slate-200 rounded-lg text-slate-600 hover:bg-brand-50 hover:border-brand-200 hover:text-brand-700 transition-all shadow-sm"
+                  >
+                    <Edit2 className="w-3 h-3" /> Edit
+                  </button>
+                )}
               </div>
             ) : (
               <div className="flex flex-col items-center justify-center py-10 text-slate-400">
                 <AlertCircle className="w-7 h-7 mb-2 opacity-30" />
                 <p className="text-sm font-medium">No data for this section</p>
+                {!isDone && (
+                  <button
+                    onClick={startEdit}
+                    className="mt-3 flex items-center gap-1 px-3 py-1.5 text-[11px] font-semibold border border-slate-200 rounded-lg text-slate-600 hover:bg-slate-50 transition-colors"
+                  >
+                    <Edit2 className="w-3 h-3" /> Add data
+                  </button>
+                )}
               </div>
             )}
 
@@ -767,7 +1292,20 @@ export default function WorkbenchPage() {
           {/* Pane header */}
           <div className="flex items-center justify-between gap-2 px-3 py-2.5 bg-slate-50 border-b border-slate-100 flex-shrink-0">
             <div className="min-w-0">
-              <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-0.5">Protocol Source</p>
+              <div className="flex items-center gap-1.5 mb-0.5">
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400">Protocol Source</p>
+                <span className="text-[10px] text-slate-300">·</span>
+                <span className={clsx(
+                  'text-[10px] font-semibold transition-colors',
+                  sectionChanging ? 'text-brand-400' : 'text-brand-600',
+                )}>
+                  {sectionDef?.label ?? selectedSection}
+                </span>
+                {sectionChanging && <Loader2 className="w-2.5 h-2.5 text-brand-400 animate-spin" />}
+                {chunks.length > 0 && !sectionChanging && (
+                  <span className="text-[10px] text-slate-400">{chunks.length} chunk{chunks.length !== 1 ? 's' : ''}</span>
+                )}
+              </div>
               <p className="text-xs font-medium text-slate-700 truncate">
                 {conversion.protocolFilename
                   ? <span className="font-mono text-[11px]">{conversion.protocolFilename}</span>
@@ -782,7 +1320,7 @@ export default function WorkbenchPage() {
                   {chunks.slice(0, 4).map((chunk, idx) => (
                     <button
                       key={idx}
-                      onClick={() => setSelectedChunkIdx(idx)}
+                      onClick={() => { setSelectedChunkIdx(idx); setPdfLoading(true) }}
                       className={clsx(
                         'flex flex-col items-center px-2 py-0.5 rounded text-[10px] font-medium transition-colors border leading-tight',
                         idx === selectedChunkIdx
@@ -827,8 +1365,9 @@ export default function WorkbenchPage() {
               conversion.protocolDocId ? (
                 <>
                   <iframe
+                    key={`pdf-${selectedSection}-${selectedChunkIdx}`}
                     ref={pdfIframeRef}
-                    src={`${INGESTION_URL}/documents/${conversion.protocolDocId}/serve#page=${activeChunk?.page_number ?? 1}&view=FitH`}
+                    src={`${INGESTION_URL}/documents/${conversion.protocolDocId}/serve#page=${sectionProvenance[selectedSection]?.[selectedChunkIdx]?.page_number ?? 1}&view=FitH`}
                     className="w-full border-0"
                     style={{ height: '100%' }}
                     title="Protocol PDF"
@@ -837,7 +1376,12 @@ export default function WorkbenchPage() {
                   {pdfLoading && (
                     <div className="absolute inset-0 flex flex-col items-center justify-center bg-slate-50/90 backdrop-blur-sm z-10">
                       <Loader2 className="w-8 h-8 animate-spin text-brand-400 mb-3" />
-                      <p className="text-sm text-slate-500 font-medium">Loading PDF…</p>
+                      <p className="text-sm text-slate-500 font-medium">
+                        {sectionChanging
+                          ? `Navigating to ${sectionDef?.label ?? selectedSection} sources…`
+                          : 'Loading PDF…'
+                        }
+                      </p>
                     </div>
                   )}
                 </>
@@ -849,7 +1393,16 @@ export default function WorkbenchPage() {
               )
             ) : (
               /* Chunks view */
-              <div className="h-full overflow-y-auto p-4">
+              <div ref={chunksScrollRef} className="h-full overflow-y-auto p-4 relative">
+                {/* Section-change loading overlay */}
+                {sectionChanging && (
+                  <div className="absolute inset-0 z-10 flex flex-col items-center justify-center bg-white/80 backdrop-blur-[2px]">
+                    <Loader2 className="w-6 h-6 animate-spin text-brand-400 mb-2" />
+                    <p className="text-xs text-slate-400 font-medium">
+                      Loading {sectionDef?.label ?? selectedSection} sources…
+                    </p>
+                  </div>
+                )}
                 {chunks.length === 0 ? (
                   <div className="flex flex-col items-center justify-center py-20 text-slate-400">
                     <FileText className="w-10 h-10 mb-3 opacity-30" />
@@ -1150,6 +1703,186 @@ export default function WorkbenchPage() {
         </div>
       )}
     </div>
+
+    {/* ── Expanded JSON editor modal ── */}
+    {showExpandedEditor && editMode && (
+      <div className="fixed inset-0 z-50 flex items-stretch bg-black/70 backdrop-blur-sm">
+        <div className="flex flex-col flex-1 m-4 bg-white rounded-2xl shadow-2xl overflow-hidden">
+          {/* Modal header */}
+          <div className="flex items-center gap-3 px-5 py-3.5 border-b border-slate-100 bg-slate-50 flex-shrink-0">
+            <Edit2 className="w-4 h-4 text-brand-500 flex-shrink-0" />
+            <div className="flex-1 min-w-0">
+              <p className="text-sm font-semibold text-slate-800">
+                Editing — {USDM_SECTIONS.find(s => s.key === selectedSection)?.label}
+              </p>
+              <p className="text-[11px] text-slate-400 mt-0.5">
+                {conversion.name} · {shortId} · Ctrl+Z undo · Ctrl+Y redo
+              </p>
+            </div>
+            <button onClick={() => setShowExpandedEditor(false)}
+              className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400 transition-colors">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+
+          {/* Two-column body */}
+          <div className="flex flex-1 overflow-hidden">
+            {/* Left: editor */}
+            <div className="flex flex-col flex-1 overflow-hidden p-5 gap-3">
+              <JsonEditorPanel
+                draft={editDraft}
+                onChange={handleDraftChange}
+                sectionKey={selectedSection}
+                onSave={saveEdit}
+                onCancel={cancelEdit}
+                saving={saving}
+                canUndo={canUndo}
+                canRedo={canRedo}
+                onUndo={handleUndo}
+                onRedo={handleRedo}
+                rows={28}
+              />
+            </div>
+
+            {/* Right: context panel */}
+            <div className="w-80 flex-shrink-0 border-l border-slate-100 overflow-y-auto p-4 bg-slate-50 space-y-4">
+              {/* Section info */}
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-2">Section</p>
+                <p className="text-xs font-semibold text-slate-700">
+                  {USDM_SECTIONS.find(s => s.key === selectedSection)?.label}
+                </p>
+                {USDM_SECTIONS.find(s => s.key === selectedSection)?.path && (
+                  <code className="text-[10px] font-mono text-slate-400 block mt-1">
+                    {USDM_SECTIONS.find(s => s.key === selectedSection)?.path}
+                  </code>
+                )}
+              </div>
+
+              {/* Validation rules cheatsheet */}
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-2">Required fields</p>
+                {(VALIDATION_RULES[selectedSection] || []).length > 0 ? (
+                  <div className="space-y-1.5">
+                    {(VALIDATION_RULES[selectedSection] || []).map((rule, i) => (
+                      <div key={i} className="flex gap-2">
+                        <div className="w-1 h-1 rounded-full bg-slate-400 mt-1.5 flex-shrink-0" />
+                        <div>
+                          <code className="text-[10px] text-slate-700 font-mono">{rule.field}</code>
+                          <p className="text-[10px] text-slate-500">{rule.desc}</p>
+                          <p className="text-[9px] text-amber-600 font-medium">{rule.ref}</p>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-400 italic">No specific rules for this section.</p>
+                )}
+              </div>
+
+              {/* Top source chunk */}
+              {chunks.length > 0 && (
+                <div>
+                  <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-2">Top source excerpt</p>
+                  <blockquote className="text-[11px] text-slate-600 italic border-l-2 border-brand-300 pl-2 leading-snug">
+                    "{chunks[0].excerpt.slice(0, 300)}{chunks[0].excerpt.length > 300 ? '…' : ''}"
+                  </blockquote>
+                  {chunks[0].page_number != null && (
+                    <p className="text-[10px] text-slate-400 mt-1">Page {chunks[0].page_number}</p>
+                  )}
+                </div>
+              )}
+
+              {/* Keyboard shortcuts */}
+              <div>
+                <p className="text-[10px] font-semibold uppercase tracking-wide text-slate-400 mb-2">Shortcuts</p>
+                <div className="space-y-1">
+                  {[
+                    ['Ctrl+Z', 'Undo'],
+                    ['Ctrl+Y', 'Redo'],
+                    ['Ctrl+Shift+Z', 'Redo (alt)'],
+                  ].map(([key, desc]) => (
+                    <div key={key} className="flex items-center justify-between">
+                      <kbd className="text-[10px] font-mono bg-white border border-slate-200 rounded px-1.5 py-0.5 text-slate-600">{key}</kbd>
+                      <span className="text-[10px] text-slate-500">{desc}</span>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* ── Reject modal ── */}
+    {showRejectModal && (
+      <div
+        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+        onClick={e => { if (e.target === e.currentTarget) setShowRejectModal(false) }}
+      >
+        <div className="bg-white rounded-2xl shadow-2xl w-[480px] overflow-hidden">
+          <div className="flex items-center gap-3 px-5 py-4 border-b border-slate-100 bg-slate-50">
+            <XCircle className="w-5 h-5 text-red-500 flex-shrink-0" />
+            <div className="flex-1">
+              <p className="text-sm font-semibold text-slate-800">Reject USDM Conversion</p>
+              <p className="text-[11px] text-slate-400 mt-0.5 truncate">{conversion.name} · {shortId}</p>
+            </div>
+            <button onClick={() => setShowRejectModal(false)} className="p-1.5 rounded-lg hover:bg-slate-200 text-slate-400">
+              <X className="w-4 h-4" />
+            </button>
+          </div>
+          <div className="p-5 space-y-4">
+            <div>
+              <label className="text-xs font-semibold text-slate-700 block mb-1.5">Rejection reason <span className="text-red-500">*</span></label>
+              <textarea
+                value={rejectNote}
+                onChange={e => setRejectNote(e.target.value)}
+                rows={4}
+                placeholder="Describe what is incorrect or missing in this USDM conversion…"
+                className="w-full text-sm border border-slate-200 rounded-xl p-3 focus:outline-none focus:ring-2 focus:ring-red-300 resize-none"
+                autoFocus
+              />
+            </div>
+            <label className="flex items-center gap-2.5 cursor-pointer select-none">
+              <input
+                type="checkbox"
+                checked={restart}
+                onChange={e => setRestart(e.target.checked)}
+                className="w-3.5 h-3.5 rounded accent-brand-600"
+              />
+              <span className="text-xs text-slate-600">Re-run AI extraction after rejection</span>
+            </label>
+          </div>
+          <div className="flex justify-end gap-2 px-5 py-4 border-t border-slate-100 bg-slate-50">
+            <button
+              onClick={() => setShowRejectModal(false)}
+              className="px-4 py-2 text-xs font-medium text-slate-600 border border-slate-200 rounded-lg hover:bg-slate-100 transition-colors"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={() => decide('rejected')}
+              disabled={!rejectNote.trim() || deciding === 'reject'}
+              className="flex items-center gap-1.5 px-4 py-2 text-xs font-semibold text-white bg-red-600 hover:bg-red-700 rounded-lg disabled:opacity-50 transition-colors"
+            >
+              {deciding === 'reject'
+                ? <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                : <XCircle className="w-3.5 h-3.5" />}
+              Confirm Rejection
+            </button>
+          </div>
+        </div>
+      </div>
+    )}
+
+    {/* ── Toast ── */}
+    {toast && (
+      <div className="fixed bottom-6 left-1/2 -translate-x-1/2 z-50 flex items-center gap-2 px-4 py-2.5 bg-slate-900 text-white text-sm rounded-xl shadow-xl border border-slate-700 animate-fade-in">
+        <CheckCircle className="w-4 h-4 text-emerald-400 flex-shrink-0" />
+        {toast}
+      </div>
+    )}
 
     {/* ── Agent Insight Tabs — outside the height:100% workbench container so main scrolls to reveal them ── */}
     <div ref={insightsRef} className="-mx-6 bg-white border-t border-slate-200">
