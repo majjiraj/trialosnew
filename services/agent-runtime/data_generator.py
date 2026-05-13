@@ -553,6 +553,72 @@ def _init_col_map(domain: str) -> None:
     for canonical, aliases in _COL_ALIASES.items():
         _RUNTIME_COL_MAP[canonical] = random.choice(aliases)
 
+# ─── Cross-domain subject pool ────────────────────────────────────────────────
+
+def _build_subject_pool(n: int, study_id: str, ref_start: date, ta: dict) -> list[dict]:
+    """Build a fixed roster of *n* subjects with consistent demographics and
+    treatment assignments.  Every domain generator for the same generation call
+    draws from this pool, guaranteeing USUBJID / SITEID / ARM correlation.
+    """
+    ta_arms = ta.get("arms", _ARMS)
+    ta_arm_codes = ta.get("arm_codes", _ARM_CODES)
+    ta_age_range = ta.get("age_range", (18, 70))
+    n_sites = max(2, min(n, 10))
+    site_ids = [f"{i:03d}" for i in range(1, n_sites + 1)]
+
+    subjects: list[dict] = []
+    for i in range(1, n + 1):
+        site = site_ids[(i - 1) % n_sites]
+        arm_idx = (i - 1) % len(ta_arm_codes)
+        rfstdtc = _randdate(ref_start, ref_start + timedelta(days=90))
+        rfendtc = rfstdtc + timedelta(days=random.randint(84, 365))
+        dob = _randdate(
+            date.today() - timedelta(days=int(ta_age_range[1] * 365.25)),
+            date.today() - timedelta(days=int(ta_age_range[0] * 365.25)),
+        )
+        subjects.append({
+            "usubjid":  _usubjid(study_id, site, i),
+            "subjid":   f"{i:04d}",
+            "siteid":   site,
+            "arm_idx":  arm_idx,
+            "armcd":    ta_arm_codes[arm_idx],
+            "arm":      ta_arms[arm_idx],
+            "rfstdtc":  rfstdtc,
+            "rfendtc":  rfendtc,
+            "dob":      dob,
+            "age":      max(ta_age_range[0], min(ta_age_range[1], (ref_start - dob).days // 365)),
+            "sex":      random.choice(["M", "F"]),
+            "race":     random.choice(_RACES),
+            "ethnic":   random.choice(_ETHNICS),
+            "country":  random.choice(_COUNTRIES),
+        })
+    return subjects
+
+
+def _call_gen(
+    gen_fn,
+    rows_per: int,
+    study_id: str,
+    dm_df: "pd.DataFrame | None",
+    ref_start: date,
+) -> "pd.DataFrame":
+    """Call a domain generator, ensuring USUBJID correlation with *dm_df*.
+
+    Generators that accept ``dm_df`` are called directly.  Generators with the
+    legacy ``(n, study_id, ref_start)`` signature are called without it and their
+    USUBJID column is then remapped to the subject pool from *dm_df*, so that
+    every domain shares the same set of subject identifiers.
+    """
+    try:
+        return gen_fn(rows_per, study_id, dm_df, ref_start)
+    except TypeError:
+        df = gen_fn(rows_per, study_id, ref_start)
+        if dm_df is not None and len(dm_df) and "USUBJID" in df.columns:
+            pool = dm_df["USUBJID"].tolist()
+            df["USUBJID"] = [pool[i % len(pool)] for i in range(len(df))]
+        return df
+
+
 # ─── Helpers ──────────────────────────────────────────────────────────────────
 
 def _study_id() -> str:
@@ -602,27 +668,26 @@ def _add_anomalies_to_df(df: pd.DataFrame, rate: float = 0.05) -> pd.DataFrame:
 
 # ─── SDTM Domain Generators ──────────────────────────────────────────────────
 
-def _gen_dm(n: int, study_id: str, ref_start: date) -> pd.DataFrame:
+def _gen_dm(n: int, study_id: str, ref_start: date, subjects: list[dict] | None = None) -> pd.DataFrame:
+    pool = subjects if subjects is not None else _build_subject_pool(n, study_id, ref_start, _TA_DEFAULT)
     rows = []
-    for i in range(1, n + 1):
-        site = _site_id()
-        arm_idx = random.randint(0, len(_ARM_CODES) - 1)
-        rfstdtc = _randdate(ref_start, ref_start + timedelta(days=90))
-        rfendtc = rfstdtc + timedelta(days=random.randint(84, 365))
+    for s in pool[:n]:
+        rfstdtc = s["rfstdtc"]
+        rfendtc = s["rfendtc"]
         rows.append({
             "STUDYID": study_id, "DOMAIN": "DM",
-            "USUBJID": _usubjid(study_id, site, i), "SUBJID": f"{i:04d}",
+            "USUBJID": s["usubjid"], "SUBJID": s["subjid"],
             "RFSTDTC": _fmt_date(rfstdtc), "RFENDTC": _fmt_date(rfendtc),
             "RFXSTDTC": _fmt_date(rfstdtc), "RFXENDTC": _fmt_date(rfendtc),
             "RFICDTC": _fmt_date(rfstdtc - timedelta(days=random.randint(1, 14))),
             "RFPENDTC": _fmt_date(rfendtc + timedelta(days=30)),
             "DTHFL": random.choices(["", "Y"], weights=[0.97, 0.03])[0],
-            "SITEID": site, "AGE": random.randint(18, 80), "AGEU": "YEARS",
-            "SEX": random.choice(_SEXES[:2]), "RACE": random.choice(_RACES),
-            "ETHNIC": random.choice(_ETHNICS),
-            "ARMCD": _ARM_CODES[arm_idx], "ARM": _ARMS[arm_idx],
-            "ACTARMCD": _ARM_CODES[arm_idx], "ACTARM": _ARMS[arm_idx],
-            "COUNTRY": random.choice(_COUNTRIES),
+            "SITEID": s["siteid"], "AGE": s["age"], "AGEU": "YEARS",
+            "SEX": s["sex"], "RACE": s["race"],
+            "ETHNIC": s["ethnic"],
+            "ARMCD": s["armcd"], "ARM": s["arm"],
+            "ACTARMCD": s["armcd"], "ACTARM": s["arm"],
+            "COUNTRY": s["country"],
             "DMDTC": _fmt_date(rfstdtc), "DMDY": 1,
         })
     return pd.DataFrame(rows)
@@ -1081,8 +1146,8 @@ def _gen_tu(n: int, study_id: str, ref_start: date) -> pd.DataFrame:
 
 # ─── ADaM Dataset Generators ─────────────────────────────────────────────────
 
-def _gen_adsl(n: int, study_id: str, ref_start: date) -> pd.DataFrame:
-    dm = _gen_dm(n, study_id, ref_start)
+def _gen_adsl(n: int, study_id: str, ref_start: date, subjects: list[dict] | None = None) -> pd.DataFrame:
+    dm = _gen_dm(n, study_id, ref_start, subjects=subjects)
     adam = dm.rename(columns={"RFSTDTC": "TRTSDT", "RFENDTC": "TRTEDT"}).copy()
     adam["STUDYID"] = study_id
     adam["SUBJID"] = dm["SUBJID"]
@@ -1240,13 +1305,19 @@ def _gen_adrs(n: int, study_id: str, ref_start: date) -> pd.DataFrame:
 
 # ─── CRF / Raw EDC Generators ────────────────────────────────────────────────
 
-def _gen_crf(domain: str, n: int, study_id: str, ref_start: date) -> pd.DataFrame:
+def _gen_crf(domain: str, n: int, study_id: str, ref_start: date, subjects: list[dict] | None = None) -> pd.DataFrame:
     """Generate raw CRF-style data (pre-CDISC, as collected) with domain-specific fields."""
     dom = domain.upper()
     rows = []
     for i in range(1, n + 1):
-        site = _site_id()
-        subj = f"{i:04d}"
+        # Pull subject demographics from pool when available
+        if subjects:
+            s = subjects[(i - 1) % len(subjects)]
+            site  = s["siteid"]
+            subj  = s["subjid"]
+        else:
+            site = _site_id()
+            subj = f"{i:04d}"
         visit = random.choice(_VISITS)
         collected_date = _randdate(ref_start, ref_start + timedelta(days=300))
 
@@ -1273,16 +1344,31 @@ def _gen_crf(domain: str, n: int, study_id: str, ref_start: date) -> pd.DataFram
                 "ae_end_dt":    _fmt_date(_randdate(collected_date, collected_date + timedelta(days=30))),
             })
         elif dom == "DM":
-            dob = _randdate(date(1940, 1, 1), date(2000, 1, 1))
-            arm_idx = random.randint(0, len(_ARM_CODES) - 1)
+            if subjects:
+                _s = subjects[(i - 1) % len(subjects)]
+                dob = _s["dob"]
+                arm_idx = _s["arm_idx"]
+                arm_name = _s["arm"]
+                arm_code_val = _s["armcd"]
+                sex_val = "Male" if _s["sex"] == "M" else "Female"
+                race_val = _s["race"].title()
+                country_val = _s["country"]
+            else:
+                dob = _randdate(date(1940, 1, 1), date(2000, 1, 1))
+                arm_idx = random.randint(0, len(_ARM_CODES) - 1)
+                arm_name = _ARMS[arm_idx]
+                arm_code_val = _ARM_CODES[arm_idx]
+                sex_val = random.choice(["Male", "Female"])
+                race_val = random.choice(_RACES).title()
+                country_val = random.choice(_COUNTRIES)
             row.update({
-                "sex":          random.choice(["Male", "Female"]),
-                "race":         random.choice(_RACES).title(),
+                "sex":          sex_val,
+                "race":         race_val,
                 "date_of_birth": _fmt_date(dob),
                 "age":          (ref_start - dob).days // 365,
-                "country":      random.choice(_COUNTRIES),
-                "treatment_arm": _ARMS[arm_idx],
-                "arm_code":      _ARM_CODES[arm_idx],
+                "country":      country_val,
+                "treatment_arm": arm_name,
+                "arm_code":     arm_code_val,
             })
         elif dom == "CM":
             generic, brand, drug_class, routes, doses, dose_unit = random.choice(_CM_DRUG_PROFILES)
@@ -1327,7 +1413,7 @@ def _gen_crf(domain: str, n: int, study_id: str, ref_start: date) -> pd.DataFram
         rows.append(row)
     return pd.DataFrame(rows)
 
-def _gen_raw_edc(domain: str, n: int, study_id: str, ref_start: date, therapeutic_area: str = "") -> pd.DataFrame:
+def _gen_raw_edc(domain: str, n: int, study_id: str, ref_start: date, therapeutic_area: str = "", subjects: list[dict] | None = None) -> pd.DataFrame:
     """Generate raw EDC export data with domain-specific clinical columns (wide format).
 
     Column names mirror how real EDC systems (Medidata Rave, Oracle Clinical) name
@@ -1341,17 +1427,25 @@ def _gen_raw_edc(domain: str, n: int, study_id: str, ref_start: date, therapeuti
     rows = []
 
     for i in range(1, n + 1):
-        site = _site_id()
-        subj = f"{i:04d}"
-        visit = random.choice(_VISITS)
+        # Draw from subject pool when available — guarantees cross-domain correlation
+        if subjects:
+            s = subjects[(i - 1) % len(subjects)]
+            site       = s["siteid"]
+            subj       = s["subjid"]
+            patient_id = s["usubjid"]
+        else:
+            site       = _site_id()
+            subj       = f"{i:04d}"
+            patient_id = f"{study_id}-{site}-{subj}"
         visit_dt = _randdate(ref_start, ref_start + timedelta(days=365))
         entry_dt = _randdate(visit_dt, visit_dt + timedelta(days=5))
+        visit    = random.choice(_VISITS)
 
         # ── Common EDC admin columns — human-readable names ───────────────────
         row: dict[str, Any] = {
             _remap_col("Study_ID"):        study_id,
             _remap_col("Site_Number"):     site,
-            _remap_col("Patient_ID"):      f"{study_id}-{site}-{subj}",
+            _remap_col("Patient_ID"):      patient_id,
             _remap_col("Subject_Number"):  subj,
             _remap_col("Visit_Name"):      visit,
             _remap_col("Visit_Date"):      _fmt_date(visit_dt),
@@ -1388,25 +1482,41 @@ def _gen_raw_edc(domain: str, n: int, study_id: str, ref_start: date, therapeuti
             ta_arms = ta.get("arms", _ARMS)
             ta_arm_codes = ta.get("arm_codes", _ARM_CODES)
             ta_age_range = ta.get("age_range", (18, 70))
-            arm_idx = random.randint(0, len(ta_arm_codes) - 1)
-            arm_code = ta_arm_codes[arm_idx]
-            arm_name = ta_arms[arm_idx]
-            dob = _randdate(
-                date.today() - timedelta(days=int(ta_age_range[1] * 365.25)),
-                date.today() - timedelta(days=int(ta_age_range[0] * 365.25)),
-            )
-            consent_dt = _randdate(ref_start - timedelta(days=14), ref_start)
-            rand_dt    = _randdate(consent_dt, ref_start + timedelta(days=7))
+            if subjects:
+                _s = subjects[(i - 1) % len(subjects)]
+                arm_code = _s["armcd"]
+                arm_name = _s["arm"]
+                dob      = _s["dob"]
+                consent_dt = _randdate(_s["rfstdtc"] - timedelta(days=14), _s["rfstdtc"])
+                rand_dt    = _randdate(consent_dt, _s["rfstdtc"] + timedelta(days=7))
+                sex_str    = "Male" if _s["sex"] == "M" else "Female"
+                race_str   = _s["race"].title()
+                ethnic_str = _s["ethnic"].title()
+                country_str = _s["country"]
+            else:
+                arm_idx    = random.randint(0, len(ta_arm_codes) - 1)
+                arm_code   = ta_arm_codes[arm_idx]
+                arm_name   = ta_arms[arm_idx]
+                dob = _randdate(
+                    date.today() - timedelta(days=int(ta_age_range[1] * 365.25)),
+                    date.today() - timedelta(days=int(ta_age_range[0] * 365.25)),
+                )
+                consent_dt = _randdate(ref_start - timedelta(days=14), ref_start)
+                rand_dt    = _randdate(consent_dt, ref_start + timedelta(days=7))
+                sex_str    = random.choice(["Male", "Female"])
+                race_str   = random.choice(_RACES).title()
+                ethnic_str = random.choice(_ETHNICS).title()
+                country_str = random.choice(_COUNTRIES)
             row.update({
                 _remap_col("Visit_Name"):            random.choice(["SCREENING", "BASELINE"]),
                 _remap_col("Visit_Date"):            _fmt_date(consent_dt),
                 _remap_col("Patient_Initials"):      fake.lexify("???").upper(),
-                _remap_col("Gender"):                random.choice(["Male", "Female"]),
-                _remap_col("Race"):                  random.choice(_RACES).title(),
-                _remap_col("Ethnicity"):             random.choice(_ETHNICS).title(),
+                _remap_col("Gender"):                sex_str,
+                _remap_col("Race"):                  race_str,
+                _remap_col("Ethnicity"):             ethnic_str,
                 _remap_col("Age_at_Enrollment"):     (ref_start - dob).days // 365,
                 _remap_col("Age_Units"):             "Years",
-                _remap_col("Country_of_Birth"):      random.choice(_COUNTRIES),
+                _remap_col("Country_of_Birth"):      country_str,
                 _remap_col("Date_of_Birth"):         _fmt_date(dob),
                 _remap_col("Informed_Consent_Date"): _fmt_date(consent_dt),
                 _remap_col("Randomization_Number"):  f"RAND-{random.randint(1000, 9999)}",
@@ -1595,22 +1705,18 @@ def _build_domain_dfs(
     if data_type == "SDTM":
         domains = [d for d in sub_domains if d in SDTM_GENERATORS] or SDTM_DOMAINS[:3]
         rows_per = max(1, num_rows // len(domains))
-        # Always generate DM first — needed as subject seed for other domains
-        dm_df = None
+        ta = _TA_PROFILES.get(therapeutic_area, _TA_DEFAULT)
+        # Build ONE consistent subject pool — ensures USUBJID/SITEID/ARM match
+        # across every domain in this generation call.
+        n_subjects = max(5, min(rows_per, 500))
+        subj_pool = _build_subject_pool(n_subjects, study_id, ref_start, ta)
+        # Always materialise DM (even when not explicitly requested) so every
+        # other generator has a concrete subject roster to reference.
+        dm_df = _gen_dm(n_subjects, study_id, ref_start, subjects=subj_pool)
         if "DM" in domains:
-            dm_df = _gen_dm(rows_per, study_id, ref_start)
-            if add_anomalies:
-                dm_df = _add_anomalies_to_df(dm_df)
-            dfs["DM"] = dm_df
-        for domain in domains:
-            if domain == "DM":
-                continue
-            gen = SDTM_GENERATORS[domain]
-            try:
-                df = gen(rows_per, study_id, dm_df, ref_start)
-            except TypeError:
-                # DM generator doesn't take dm_df arg
-                df = gen(rows_per, study_id, ref_start)
+            dfs["DM"] = _add_anomalies_to_df(dm_df) if add_anomalies else dm_df
+        for domain in [d for d in domains if d != "DM"]:
+            df = _call_gen(SDTM_GENERATORS[domain], rows_per, study_id, dm_df, ref_start)
             if add_anomalies:
                 df = _add_anomalies_to_df(df)
             dfs[domain] = df
@@ -1618,20 +1724,15 @@ def _build_domain_dfs(
     elif data_type == "ADaM":
         domains = [d for d in sub_domains if d in ADAM_GENERATORS] or ADAM_DOMAINS[:3]
         rows_per = max(1, num_rows // len(domains))
-        adsl_df = None
+        ta = _TA_PROFILES.get(therapeutic_area, _TA_DEFAULT)
+        n_subjects = max(5, min(rows_per, 500))
+        subj_pool = _build_subject_pool(n_subjects, study_id, ref_start, ta)
+        # Always materialise ADSL as the subject anchor for all ADaM datasets.
+        adsl_df = _gen_adsl(n_subjects, study_id, ref_start, subjects=subj_pool)
         if "ADSL" in domains:
-            adsl_df = _gen_adsl(rows_per, study_id, ref_start)
-            if add_anomalies:
-                adsl_df = _add_anomalies_to_df(adsl_df)
-            dfs["ADSL"] = adsl_df
-        for domain in domains:
-            if domain == "ADSL":
-                continue
-            gen = ADAM_GENERATORS[domain]
-            try:
-                df = gen(rows_per, study_id, adsl_df, ref_start)
-            except TypeError:
-                df = gen(rows_per, study_id, ref_start)
+            dfs["ADSL"] = _add_anomalies_to_df(adsl_df) if add_anomalies else adsl_df
+        for domain in [d for d in domains if d != "ADSL"]:
+            df = _call_gen(ADAM_GENERATORS[domain], rows_per, study_id, adsl_df, ref_start)
             if add_anomalies:
                 df = _add_anomalies_to_df(df)
             dfs[domain] = df
@@ -1639,8 +1740,10 @@ def _build_domain_dfs(
     elif data_type == "CRF":
         forms = [f for f in sub_domains if f in CRF_FORMS] or CRF_FORMS[:3]
         rows_per = max(1, num_rows // len(forms))
+        ta = _TA_PROFILES.get(therapeutic_area, _TA_DEFAULT)
+        subj_pool = _build_subject_pool(max(5, min(rows_per, 500)), study_id, ref_start, ta)
         for form in forms:
-            df = _gen_crf(form, rows_per, study_id, ref_start)
+            df = _gen_crf(form, rows_per, study_id, ref_start, subjects=subj_pool)
             if add_anomalies:
                 df = _add_anomalies_to_df(df)
             dfs[form] = df
@@ -1648,8 +1751,10 @@ def _build_domain_dfs(
     elif data_type == "RawEDC":
         forms = [f for f in sub_domains if f in EDC_FORMS] or EDC_FORMS[:3]
         rows_per = max(1, num_rows // len(forms))
+        ta = _TA_PROFILES.get(therapeutic_area, _TA_DEFAULT)
+        subj_pool = _build_subject_pool(max(5, min(rows_per, 500)), study_id, ref_start, ta)
         for form in forms:
-            df = _gen_raw_edc(form, rows_per, study_id, ref_start, therapeutic_area)
+            df = _gen_raw_edc(form, rows_per, study_id, ref_start, therapeutic_area, subjects=subj_pool)
             if add_anomalies:
                 df = _add_anomalies_to_df(df)
             dfs[form] = df

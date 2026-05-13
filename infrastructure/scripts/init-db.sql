@@ -108,31 +108,42 @@ CREATE TABLE IF NOT EXISTS edc_connections (
 -- ============================================================
 
 CREATE TABLE IF NOT EXISTS documents (
-    id              UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-    org_id          UUID NOT NULL REFERENCES organizations(id),
-    study_id        UUID REFERENCES studies(id),
-    document_type   TEXT NOT NULL CHECK (document_type IN (
-                        'protocol','sap','crf','csr','sdtm_ig','adam_ig',
-                        'lab_manual','lab_report','study_budget','dmp',
-                        'icf','sdtm_dataset','adam_dataset','other'
-                    )),
-    name            TEXT NOT NULL,
-    file_name       TEXT NOT NULL,
-    file_size_bytes BIGINT,
-    sha256_hash     TEXT NOT NULL,
-    version         TEXT NOT NULL DEFAULT '1.0',
-    source_type     TEXT NOT NULL DEFAULT 'upload' CHECK (source_type IN ('upload','sftp','url','lims')),
-    bronze_s3_key   TEXT,
-    status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','indexed','error')),
-    error_message   TEXT,
-    metadata        JSONB DEFAULT '{}',
-    uploaded_by     UUID REFERENCES users(id),
-    created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-    updated_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
+    id                  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    org_id              UUID NOT NULL REFERENCES organizations(id),
+    study_id            UUID REFERENCES studies(id),
+    document_type       TEXT NOT NULL CHECK (document_type IN (
+                            'protocol','sap','crf','csr','sdtm_ig','adam_ig','usdm_ig',
+                            'lab_manual','lab_report','study_budget','dmp',
+                            'icf','sdtm_dataset','adam_dataset','other',
+                            'ich_guideline','controlled_terminology'
+                        )),
+    name                TEXT NOT NULL,
+    file_name           TEXT NOT NULL,
+    file_size_bytes     BIGINT,
+    sha256_hash         TEXT NOT NULL,
+    version             TEXT NOT NULL DEFAULT '1.0',
+    version_number      INTEGER NOT NULL DEFAULT 1,
+    parent_document_id  UUID REFERENCES documents(id),
+    document_date       DATE,
+    source_type         TEXT NOT NULL DEFAULT 'upload' CHECK (source_type IN ('upload','sftp','url','lims')),
+    bronze_s3_key       TEXT,
+    status              TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending','processing','indexed','error')),
+    error_message       TEXT,
+    metadata            JSONB DEFAULT '{}',
+    uploaded_by         UUID REFERENCES users(id),
+    created_at          TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+    updated_at          TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 
-CREATE INDEX IF NOT EXISTS idx_docs_study ON documents(study_id, document_type);
-CREATE INDEX IF NOT EXISTS idx_docs_org ON documents(org_id, document_type);
+-- Prevent the same file being uploaded twice to the same study
+CREATE UNIQUE INDEX IF NOT EXISTS idx_docs_study_hash
+    ON documents(org_id, study_id, sha256_hash)
+    WHERE study_id IS NOT NULL;
+
+CREATE INDEX IF NOT EXISTS idx_docs_study   ON documents(study_id, document_type);
+CREATE INDEX IF NOT EXISTS idx_docs_org     ON documents(org_id, document_type);
+CREATE INDEX IF NOT EXISTS idx_docs_lineage ON documents(study_id, document_type, version_number)
+    WHERE document_type = 'protocol';
 
 -- Lab reports get additional tracking
 CREATE TABLE IF NOT EXISTS lab_report_ingestions (
@@ -284,6 +295,7 @@ CREATE TABLE IF NOT EXISTS agent_runs (
     tokens_used     INT,
     step_traces     JSONB DEFAULT '[]',
     checkpoint_data JSONB DEFAULT '{}',
+    metadata        JSONB DEFAULT '{}',
     created_at      TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 

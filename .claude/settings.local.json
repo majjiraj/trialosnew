@@ -127,7 +127,10 @@
       "Bash(kill -9 774 1310)",
       "Bash(lsof -iTCP -sTCP:LISTEN -P)",
       "Bash(pkill -f \"next-server\")",
-      "Bash(grep -r \"execution\\\\|trace\\\\|thinking\\\\|step\\\\|planning\" /Users/rajeshmajji/trialo/frontend/src/app/\\\\\\(dashboard\\\\\\)/agents/runs/[runId]/page.tsx)"
+      "Bash(grep -r \"execution\\\\|trace\\\\|thinking\\\\|step\\\\|planning\" /Users/rajeshmajji/trialo/frontend/src/app/\\\\\\(dashboard\\\\\\)/agents/runs/[runId]/page.tsx)",
+      "Bash(ps *)",
+      "Bash(kill 71800 *)",
+      "Bash(unzip -p '/Users/rajeshmajji/trialo/Maxis_AI_Context_Layer_—_Comprehensive_Design_Document.docx' word/document.xml)"
     ]
   }
 }

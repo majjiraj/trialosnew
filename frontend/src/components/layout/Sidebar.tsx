@@ -1,7 +1,10 @@
 'use client'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
-import { LayoutDashboard, FlaskConical, Bot, Store, ShieldCheck, FileText, Settings, Plus, ChevronDown, Shield, Users, Brain, Library, ListTodo, MessageSquare, BarChart2, GitBranch } from 'lucide-react'
+import {
+  FileText, ChevronDown, Shield, BookOpen,
+  Star, Plus, Users, Brain, Settings,
+} from 'lucide-react'
 import { clsx } from 'clsx'
 import { useState } from 'react'
 import { useAuth } from './AuthContext'
@@ -10,40 +13,22 @@ type NavChild = { name: string; href: string; highlight?: boolean }
 type NavItem = { name: string; href?: string; icon: React.ElementType; children?: NavChild[] }
 
 const BASE_NAV: NavItem[] = [
-  { name: 'Command Center', href: '/', icon: LayoutDashboard },
-  { name: 'My Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  {
-    name: 'Widgets', icon: BarChart2, children: [
-      { name: 'Widget Library', href: '/widgets' },
-      { name: 'Create Widget', href: '/widgets/new', highlight: true },
-    ]
-  },
   { name: 'Documents', href: '/documents', icon: FileText },
-  { name: 'Conversations', href: '/conversations', icon: MessageSquare },
   {
-    name: 'Agents', icon: Bot, children: [
-      { name: 'Agent Console', href: '/agents' },
-      { name: 'Vibe Builder', href: '/agents/vibe', highlight: true },
-      { name: 'Build Agent', href: '/agents/build' },
-      { name: 'Approval Queue', href: '/tasks' },
+    name: 'Standards', icon: BookOpen, children: [
+      { name: 'CT Browser', href: '/standards/terminology' },
+      { name: 'Regulatory', href: '/standards/regulatory' },
+      { name: 'Foundation Graph', href: '/foundation-graph', highlight: true },
+      { name: 'Knowledge Graph', href: '/knowledge-graph', highlight: true },
     ]
   },
   {
-    name: 'Skills', icon: Library, children: [
-      { name: 'Skills Library', href: '/agents/skills' },
-      { name: 'Create Skill', href: '/agents/skills?new=1', highlight: true },
+    name: 'Clinical Intelligence', icon: Star, children: [
+      { name: 'Protocol Hub', href: '/protocols', highlight: true },
+      { name: 'Protocol Lineage', href: '/protocols/lineage' },
+      { name: 'Conversions', href: '/usdm', highlight: true },
     ]
   },
-  { name: 'Marketplace', href: '/marketplace', icon: Store },
-  {
-    name: 'Tasks', icon: ListTodo, children: [
-      { name: 'My Tasks', href: '/tasks' },
-      { name: 'All Workflows', href: '/workflows' },
-    ]
-  },
-  { name: 'Context Graph', href: '/context-graph', icon: GitBranch },
-  { name: 'Audit Trail', href: '/audit', icon: ShieldCheck },
-  { name: 'Data Generator', href: '/data-generator', icon: FlaskConical },
 ]
 
 const ADMIN_NAV: NavItem = {
@@ -57,6 +42,8 @@ const ADMIN_NAV: NavItem = {
   ]
 }
 
+const ICON_STYLE = { strokeWidth: 1.75 }
+
 function NavItem({ item }: { item: NavItem }) {
   const pathname = usePathname()
   const [open, setOpen] = useState(false)
@@ -65,22 +52,31 @@ function NavItem({ item }: { item: NavItem }) {
     const isActive = item.children.some(c => pathname.startsWith(c.href))
     return (
       <div>
-        <button onClick={() => setOpen(o => !o)} className={clsx(
-          'w-full flex items-center justify-between px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-          isActive ? 'bg-brand-50 text-brand-700' : 'text-slate-600 hover:bg-slate-100'
-        )}>
-          <span className="flex items-center gap-2.5"><item.icon className="w-4 h-4" />{item.name}</span>
-          <ChevronDown className={clsx('w-3.5 h-3.5 transition-transform', (open || isActive) && 'rotate-180')} />
+        <button
+          onClick={() => setOpen(o => !o)}
+          className={clsx('sidebar-nav-item w-full justify-between', isActive && 'sidebar-nav-active')}
+        >
+          <span className="flex items-center gap-2.5">
+            <item.icon className="w-[15px] h-[15px] flex-shrink-0" style={ICON_STYLE} />
+            {item.name}
+          </span>
+          <ChevronDown className={clsx('w-3.5 h-3.5 transition-transform flex-shrink-0', (open || isActive) && 'rotate-180')} />
         </button>
         {(open || isActive) && (
           <div className="mt-1 ml-6 space-y-0.5">
             {item.children.map(child => (
-              <Link key={child.href} href={child.href} className={clsx(
-                'block px-3 py-1.5 rounded-lg text-sm transition-colors',
-                pathname === child.href ? 'bg-brand-500 text-white font-medium' : 'text-slate-600 hover:bg-slate-100',
-                'highlight' in child && child.highlight && pathname !== child.href && 'text-brand-600 font-medium'
-              )}>
-                {'highlight' in child && child.highlight && <Plus className="w-3 h-3 inline mr-1" />}
+              <Link
+                key={child.href}
+                href={child.href}
+                className={clsx(
+                  'sidebar-nav-item py-[6px]',
+                  pathname === child.href ? 'sidebar-nav-active' : '',
+                  child.highlight && pathname !== child.href ? 'sidebar-nav-highlight' : ''
+                )}
+              >
+                {child.highlight && pathname !== child.href && (
+                  <Plus className="w-3 h-3 flex-shrink-0" />
+                )}
                 {child.name}
               </Link>
             ))}
@@ -92,11 +88,12 @@ function NavItem({ item }: { item: NavItem }) {
 
   const isActive = 'href' in item && pathname === item.href
   return (
-    <Link href={(item as any).href} className={clsx(
-      'flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm font-medium transition-colors',
-      isActive ? 'bg-brand-500 text-white' : 'text-slate-600 hover:bg-slate-100'
-    )}>
-      <item.icon className="w-4 h-4" />{item.name}
+    <Link
+      href={(item as any).href}
+      className={clsx('sidebar-nav-item', isActive && 'sidebar-nav-active')}
+    >
+      <item.icon className="w-[15px] h-[15px] flex-shrink-0" style={ICON_STYLE} />
+      {item.name}
     </Link>
   )
 }
@@ -105,34 +102,58 @@ export function Sidebar() {
   const { user } = useAuth()
 
   return (
-    <aside className="w-56 bg-white border-r border-slate-200 flex flex-col h-full flex-shrink-0">
-      <div className="px-4 py-4 border-b border-slate-200">
-        <div className="flex items-center gap-2">
-          <div className="w-7 h-7 bg-brand-500 rounded-lg flex items-center justify-center">
-            <FlaskConical className="w-4 h-4 text-white" />
-          </div>
-          <span className="font-semibold text-slate-900">TrialOS</span>
-          <span className="text-xs text-slate-400 ml-auto">v1.0</span>
+    <aside
+      className="flex flex-col h-full flex-shrink-0 sidebar-hide-scrollbar"
+      style={{
+        width: '240px',
+        background: 'linear-gradient(180deg, #0C1B3A 0%, #102556 60%, #1A3680 100%)',
+        borderRight: '1px solid rgba(255,255,255,0.06)',
+        overflowY: 'auto',
+        overflowX: 'hidden',
+      }}
+    >
+      {/* Logo */}
+      <div style={{ padding: '20px 16px 18px', borderBottom: '1px solid rgba(255,255,255,0.07)', marginBottom: '4px' }}>
+        <div className="flex items-center justify-between">
+          <img
+            src="/maxisai-logo-white.png"
+            alt="MaxisAI"
+            style={{ height: '40px', width: 'auto', maxWidth: '160px', objectFit: 'contain' }}
+          />
+          <span style={{ fontSize: '11px', color: 'rgba(255,255,255,0.3)' }}>v1.0</span>
         </div>
         {user?.org_name && (
-          <p className="text-xs text-slate-400 truncate mt-1 pl-9">{user.org_name}</p>
+          <p style={{
+            fontSize: '12px', color: 'rgba(255,255,255,0.35)',
+            marginTop: '8px',
+            overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap',
+          }}>
+            {user.org_name}
+          </p>
         )}
       </div>
-      <nav className="flex-1 px-3 py-4 space-y-1 overflow-y-auto">
+
+      {/* Nav */}
+      <nav className="flex-1 px-3 py-4 space-y-0.5">
         {BASE_NAV.map(item => <NavItem key={item.name} item={item} />)}
         {user?.is_platform_admin && <NavItem key="admin" item={ADMIN_NAV} />}
       </nav>
-      <div className="px-3 py-4 border-t border-slate-200 space-y-0.5">
+
+      {/* Footer */}
+      <div className="px-3 py-4 space-y-0.5" style={{ borderTop: '1px solid rgba(255,255,255,0.07)' }}>
         {!user?.is_platform_admin && (
-          <Link href="/settings/users" className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 transition-colors">
-            <Users className="w-4 h-4" />Users
+          <Link href="/settings/users" className="sidebar-nav-item">
+            <Users className="w-[15px] h-[15px] flex-shrink-0" style={ICON_STYLE} />
+            Users
           </Link>
         )}
-        <Link href="/settings/llm-providers" className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 transition-colors">
-          <Brain className="w-4 h-4" />LLM Providers
+        <Link href="/settings/llm-providers" className="sidebar-nav-item">
+          <Brain className="w-[15px] h-[15px] flex-shrink-0" style={ICON_STYLE} />
+          LLM Providers
         </Link>
-        <Link href="/settings" className="flex items-center gap-2.5 px-3 py-2 rounded-lg text-sm text-slate-600 hover:bg-slate-100 transition-colors">
-          <Settings className="w-4 h-4" />Settings
+        <Link href="/settings" className="sidebar-nav-item">
+          <Settings className="w-[15px] h-[15px] flex-shrink-0" style={ICON_STYLE} />
+          Settings
         </Link>
       </div>
     </aside>

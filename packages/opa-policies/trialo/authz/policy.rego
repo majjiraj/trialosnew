@@ -14,7 +14,10 @@ role_scopes := {
         "platform:notify:write", "platform:approvals:read",
         "org:admin",
         "apps:read", "apps:write", "apps:install",
-        "workflows:start", "tasks:complete", "esig:create"
+        "workflows:start", "tasks:complete", "esig:create",
+        "standards:read", "study:graph:read", "study:memory:read",
+        "platform:orchestrate:read", "platform:evaluation:read",
+        "platform:hitl:read"
     ],
     "cro_data_manager": [
         "study:data:read", "study:data:write", "study:docs:read",
@@ -50,7 +53,10 @@ role_scopes := {
         "study:data:read", "study:validation:read",
         "study:queries:write", "study:reports:write",
         "platform:notify:write", "platform:approvals:write",
-        "apps:read"
+        "apps:read",
+        "standards:read", "study:graph:read", "study:graph:write",
+        "study:memory:read", "study:memory:write",
+        "platform:orchestrate:write", "platform:hitl:write"
     ],
     "analyst": [
         "study:data:read", "study:docs:read", "study:reports:read",
@@ -72,18 +78,34 @@ role_scopes := {
         "platform:notify:write", "platform:approvals:write",
         "org:admin",
         "apps:read", "apps:write", "apps:publish", "apps:install",
-        "workflows:start", "tasks:complete", "esig:create"
+        "workflows:start", "tasks:complete", "esig:create",
+        # Layer 1-7 permissions
+        "standards:read", "standards:write",
+        "study:graph:read", "study:graph:write",
+        "study:memory:read", "study:memory:write",
+        "platform:orchestrate:write", "platform:orchestrate:read",
+        "platform:hitl:write", "platform:hitl:read",
+        "platform:evaluation:read"
+    ],
+    "standards_librarian": [
+        "standards:read", "standards:write",
+        "study:data:read", "study:docs:read",
+        "study:reports:read", "apps:read"
+    ],
+    "data_architect": [
+        "study:data:read", "study:data:write", "study:docs:read",
+        "study:graph:read", "study:graph:write",
+        "study:memory:read", "standards:read",
+        "study:reports:write", "apps:read", "workflows:start", "tasks:complete"
+    ],
+    "compliance_officer": [
+        "study:data:read", "study:docs:read", "study:reports:read",
+        "study:reports:write", "standards:read",
+        "study:graph:read", "study:memory:read",
+        "platform:approvals:write", "platform:hitl:write",
+        "apps:read", "tasks:complete", "esig:create"
     ]
 }
-
-# ACP scope helper sets — used for convenient allow checks
-role_scopes contains "apps:read"       if roles[_] in ["analyst","tenant_admin","sponsor_admin","cro_data_manager","site_crc","site_pi","medical_monitor","biostatistician","platform_admin"]
-role_scopes contains "apps:write"      if roles[_] in ["tenant_admin","sponsor_admin","platform_admin"]
-role_scopes contains "apps:publish"    if roles[_] in ["platform_admin"]
-role_scopes contains "apps:install"    if roles[_] in ["tenant_admin","sponsor_admin","platform_admin"]
-role_scopes contains "workflows:start" if roles[_] in ["tenant_admin","cro_data_manager","site_pi","site_crc","sponsor_admin","platform_admin"]
-role_scopes contains "tasks:complete"  if roles[_] in ["tenant_admin","cro_data_manager","site_pi","site_crc","medical_monitor","biostatistician","sponsor_admin","platform_admin"]
-role_scopes contains "esig:create"     if roles[_] in ["site_pi","medical_monitor","sponsor_admin","tenant_admin","platform_admin"]
 
 # Allow if user has required scope via their role
 allow if {

@@ -70,6 +70,12 @@ interface ApprovalRequest {
   createdAt: string
 }
 
+function isCombinedSpecPayload(payload: unknown): payload is CombinedSpec {
+  if (!payload || typeof payload !== 'object') return false
+  const candidate = payload as { domains?: unknown }
+  return !!candidate.domains && typeof candidate.domains === 'object' && !Array.isArray(candidate.domains)
+}
+
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
 const getToken = () =>
@@ -334,6 +340,8 @@ function MappingReviewContent() {
 
   const [approval, setApproval] = useState<ApprovalRequest | null>(null)
   const [spec, setSpec] = useState<CombinedSpec | null>(null)
+  const [rawApprovedPayload, setRawApprovedPayload] = useState<Record<string, unknown> | null>(null)
+  const [isDomainSpec, setIsDomainSpec] = useState(true)
   const [activeDomain, setActiveDomain] = useState<string>('')
   const [showValidation, setShowValidation] = useState(false)
   const [loading, setLoading] = useState(true)
@@ -356,11 +364,17 @@ function MappingReviewContent() {
         setApproval(a)
         // Normalise to multi-domain format
         // proposedAction may come back as a JSON string if stored double-encoded in DB
-        let combinedSpec: CombinedSpec = typeof a.proposedAction === 'string'
+        const parsed = typeof a.proposedAction === 'string'
           ? JSON.parse(a.proposedAction)
           : a.proposedAction
-        if (!combinedSpec?.domains && (combinedSpec as unknown as Record<string, unknown>)?.mappings) {
-          const legacy = combinedSpec as unknown as { domain?: string; mappings: MappingEntry[]; unmapped_columns?: string[]; missing_required_vars?: string[]; suggested_constants?: Record<string, string> }
+        const payload = (parsed && typeof parsed === 'object') ? parsed as Record<string, unknown> : {}
+
+        let combinedSpec: CombinedSpec | null = null
+
+        if (isCombinedSpecPayload(payload)) {
+          combinedSpec = payload
+        } else if ((payload as { mappings?: unknown }).mappings) {
+          const legacy = payload as unknown as { domain?: string; mappings: MappingEntry[]; unmapped_columns?: string[]; missing_required_vars?: string[]; suggested_constants?: Record<string, string> }
           const domain = legacy.domain || 'XX'
           combinedSpec = {
             domains: {
@@ -374,8 +388,20 @@ function MappingReviewContent() {
             source_files: [],
           }
         }
-        setSpec(combinedSpec)
-        setActiveDomain(Object.keys(combinedSpec.domains)[0] || '')
+
+        if (combinedSpec) {
+          setIsDomainSpec(true)
+          setRawApprovedPayload(null)
+          setSpec(combinedSpec)
+          setActiveDomain(Object.keys(combinedSpec.domains || {})[0] || '')
+        } else {
+          // Some approvals (e.g., USDM JSON reviews) are not domain-mapping payloads.
+          // Keep payload for approve/reject submission and render a read-only JSON view.
+          setIsDomainSpec(false)
+          setRawApprovedPayload(payload)
+          setSpec({ domains: {}, source_files: [] })
+          setActiveDomain('')
+        }
       })
       .catch(e => setError(e.message))
       .finally(() => setLoading(false))
@@ -399,7 +425,9 @@ function MappingReviewContent() {
         runId: approval.runId,
         approvalId: approval.id,
         decision,
-        modifiedSpec: decision === 'approved' ? spec : null,
+        modifiedSpec: decision === 'approved'
+          ? (isDomainSpec ? spec : (rawApprovedPayload || spec))
+          : null,
         decidedBy: user.id,
         note: rejectNote,
         restart,
@@ -440,7 +468,7 @@ function MappingReviewContent() {
     )
   }
 
-  const domains = Object.keys(spec.domains)
+  const domains = Object.keys(spec?.domains || {})
 
   return (
     <div className="p-6 space-y-6 max-w-7xl mx-auto">
@@ -569,7 +597,7 @@ function MappingReviewContent() {
             </div>
             {/* Per-domain summaries */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {Object.entries(spec.validation_report.domain_summaries).map(([domain, ds]) => (
+              {Object.entries(spec.validation_report.domain_summaries || {}).map(([domain, ds]) => (
                 <div key={domain} className="rounded-xl border border-slate-200 bg-white px-4 py-3 text-sm">
                   <div className="font-semibold text-slate-700 mb-2">{domain}</div>
                   <div className="flex justify-between text-xs text-slate-500"><span>Mappings</span><span className="font-medium text-slate-700">{ds.total_mappings}</span></div>
@@ -599,6 +627,16 @@ function MappingReviewContent() {
                 </ul>
               </div>
             )}
+          </div>
+        ) : !isDomainSpec ? (
+          <div className="space-y-3">
+            <div className="rounded-xl border border-slate-200 bg-slate-50 p-4">
+              <p className="text-sm text-slate-700 font-medium">Review Payload</p>
+              <p className="text-xs text-slate-500 mt-1">This approval contains structured JSON (not SDTM domain mappings). You can still approve or reject from this page.</p>
+            </div>
+            <pre className="text-xs bg-slate-900 text-slate-100 rounded-xl p-4 overflow-auto max-h-[32rem] border border-slate-700">
+              {JSON.stringify(rawApprovedPayload || {}, null, 2)}
+            </pre>
           </div>
         ) : (
           activeDomain && spec.domains[activeDomain] && (

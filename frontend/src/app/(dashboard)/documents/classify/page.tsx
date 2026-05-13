@@ -27,9 +27,11 @@ const KNOWN_TYPES = [
   { code: 'lab_manual',   label: 'Laboratory Manual' },
   { code: 'dmp',          label: 'Data Management Plan' },
   { code: 'icf',          label: 'Informed Consent Form' },
-  { code: 'lab_report',   label: 'Lab Report' },
-  { code: 'study_budget', label: 'Study Budget' },
-  { code: 'other',        label: 'Other / Unclassified' },
+  { code: 'lab_report',           label: 'Lab Report' },
+  { code: 'study_budget',         label: 'Study Budget' },
+  { code: 'ich_guideline',        label: 'ICH Guideline' },
+  { code: 'controlled_terminology', label: 'Controlled Terminology' },
+  { code: 'other',                label: 'Other / Unclassified' },
 ]
 
 const CONTEXT_GRAPH_URL = process.env.NEXT_PUBLIC_CONTEXT_GRAPH_URL || 'http://localhost:8008'

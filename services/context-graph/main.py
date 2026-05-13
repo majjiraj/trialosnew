@@ -21,6 +21,7 @@ Design Principles
 • Graph is stored in PostgreSQL (adjacency tables + recursive CTEs) — no extra DB
 """
 
+import os
 from contextlib import asynccontextmanager
 from dataclasses import dataclass, field, asdict
 from fastapi import FastAPI, HTTPException, BackgroundTasks, Query
@@ -58,6 +59,7 @@ class Settings(BaseSettings):
     embedding_dim: int          = 768
     kafka_brokers: str          = "localhost:9092"
     context_graph_url: str      = "http://localhost:8008"
+    agent_runtime_url: str      = "http://localhost:8004"
     max_entity_batch: int       = 5    # chunks to process in one LLM entity-extract call
     max_entity_chunks: int      = 100  # max chunks to run entity extraction on (avoids multi-hour runs on large docs)
     min_type_confidence: float  = 0.70 # below this → pending classification
@@ -71,6 +73,7 @@ class Settings(BaseSettings):
 
     class Config:
         env_file = ".env"
+        extra = 'ignore'
 
 
 settings     = Settings()
@@ -213,6 +216,243 @@ def _vec_str(v: list[float]) -> str:
     return "[" + ",".join(str(x) for x in v) + "]"
 
 
+CLASSIFIER_FACET_KEYS = (
+    "protocol_number",
+    "version",
+    "sponsor",
+    "study_name",
+    "compound",
+    "document_date",
+)
+
+SECTION_TYPE_PATTERNS: dict[str, tuple[str, ...]] = {
+    "objectives": (
+        "objective", "objectives", "endpoint", "endpoints", "study objective",
+    ),
+    "schedule_of_assessments": (
+        "schedule of assessments", "schedule of events", "visit schedule",
+        "study calendar", "assessments schedule",
+    ),
+    "inclusion_exclusion": (
+        "inclusion criteria", "exclusion criteria", "eligibility criteria", "eligibility",
+    ),
+    "ae_handling": (
+        "adverse event", "serious adverse event", "ae reporting", "safety reporting",
+        "event severity", "ae severity", "toxicity",
+    ),
+    "conformance_rules": (
+        "conformance", "validation rule", "compliance rule", "rule id", "controlled terminology",
+    ),
+    "mapping_examples": (
+        "mapping example", "mapping examples", "example mapping", "source to sdtm",
+        "derived from", "mapping guidance",
+    ),
+}
+
+DOMAIN_ALIASES: dict[str, tuple[str, ...]] = {
+    "DM": ("dm", "demographics", "demography"),
+    "AE": ("ae", "adverse event", "adverse events", "aes"),
+    "LB": ("lb", "lab", "labs", "laboratory", "laboratory test", "laboratory tests"),
+    "VS": ("vs", "vital sign", "vital signs", "vitals"),
+    "CM": ("cm", "concomitant medication", "concomitant medications", "conmed", "conmeds"),
+    "EX": ("ex", "exposure", "dose", "dosing"),
+    "MH": ("mh", "medical history"),
+    "DS": ("ds", "disposition"),
+    "SV": ("sv", "subject visits", "visits", "visit schedule"),
+}
+
+VARIABLE_ALIAS_MAP: dict[str, tuple[str, ...]] = {
+    "AESEV": ("ae severity", "severity of event", "event severity"),
+    "AESER": ("serious adverse event", "sae flag", "serious event flag"),
+    "AEREL": ("causality", "relationship to study drug", "adverse event relationship"),
+    "AEOUT": ("outcome of adverse event", "event outcome"),
+    "AETERM": ("adverse event term", "reported event term"),
+    "AESTDTC": ("adverse event start date", "event start date"),
+    "RFSTDTC": ("reference start date", "treatment start date", "first dose date"),
+    "SITEID": ("site id", "site identifier"),
+}
+
+OPERATIONAL_ALIAS_MAP: dict[str, tuple[str, ...]] = {
+    "query response sla": ("query response rate", "response rate sla", "query sla"),
+    "overdue query": ("overdue queries", "past due query", "stale query"),
+}
+
+RULE_ID_RE = re.compile(r"\b(?:SD|AE|CM|DM|DS|EX|LB|MH|SV|VS)\d{4}\b", re.IGNORECASE)
+VARIABLE_RE = re.compile(r"\b[A-Z]{2}[A-Z0-9]{2,7}\b")
+PROTOCOL_RE = re.compile(
+    r"\b(?:protocol(?: number)?|study(?: number)?)[\s:#-]*([A-Z]{1,8}[-_]?\d{2,}[A-Z0-9._/-]*)",
+    re.IGNORECASE
+)
+FORM_NAME_RE = re.compile(r"\b(?:form|crf)\s*[:\-]\s*([A-Z][A-Za-z0-9 /_()\-]{2,80})")
+
+
+def _json_dict(value: Any) -> dict[str, Any]:
+    if value is None:
+        return {}
+    if isinstance(value, str):
+        try:
+            parsed = json.loads(value)
+            return parsed if isinstance(parsed, dict) else {}
+        except Exception:
+            return {}
+    if isinstance(value, dict):
+        return dict(value)
+    return {}
+
+
+def _clean_classifier_metadata(meta: dict[str, Any] | None) -> dict[str, Any]:
+    cleaned: dict[str, Any] = {}
+    raw = meta or {}
+    for key in CLASSIFIER_FACET_KEYS:
+        value = raw.get(key)
+        if value is not None and str(value).strip():
+            cleaned[key] = str(value).strip()
+    if raw.get("key_phrases"):
+        cleaned["key_phrases"] = [str(item).strip() for item in raw.get("key_phrases", []) if str(item).strip()][:20]
+    if raw.get("structure_description"):
+        cleaned["structure_description"] = str(raw.get("structure_description")).strip()
+    return cleaned
+
+
+def _infer_section_type(section: str, content: str, doc_type: str) -> str:
+    haystack = f"{section}\n{content[:600]}".lower()
+    for section_type, patterns in SECTION_TYPE_PATTERNS.items():
+        if any(pattern in haystack for pattern in patterns):
+            return section_type
+    if doc_type == "crf" and ("form" in haystack or "field" in haystack):
+        return "mapping_examples"
+    return "general"
+
+
+def _extract_rule_ids(text: str) -> list[str]:
+    return list(dict.fromkeys(match.upper() for match in RULE_ID_RE.findall(text or "")))
+
+
+def _extract_domain_mentions(text: str) -> list[str]:
+    lower_text = f" {text.lower()} "
+    found: list[str] = []
+    for domain, aliases in DOMAIN_ALIASES.items():
+        if any(f" {alias.lower()} " in lower_text for alias in aliases):
+            found.append(domain)
+    return list(dict.fromkeys(found))
+
+
+def _extract_variable_mentions(text: str) -> list[str]:
+    upper_text = (text or "").upper()
+    found = [token for token in VARIABLE_RE.findall(upper_text) if len(token) >= 4]
+    for canonical, aliases in VARIABLE_ALIAS_MAP.items():
+        if any(alias in (text or "").lower() for alias in aliases):
+            found.append(canonical)
+    return list(dict.fromkeys(found))[:40]
+
+
+def _extract_operational_aliases(text: str) -> list[str]:
+    lower_text = (text or "").lower()
+    found: list[str] = []
+    for canonical, aliases in OPERATIONAL_ALIAS_MAP.items():
+        if canonical in lower_text or any(alias in lower_text for alias in aliases):
+            found.append(canonical)
+    return found
+
+
+def _extract_form_names(section: str, content: str, doc_type: str) -> list[str]:
+    if doc_type not in {"crf", "protocol", "sap", "other"}:
+        return []
+    matches = [m.strip(" -_") for m in FORM_NAME_RE.findall(f"{section}\n{content[:500]}")]
+    if section and any(token in section.lower() for token in ("form", "crf")):
+        matches.append(section.strip())
+    return list(dict.fromkeys(match[:80] for match in matches if len(match) >= 3))[:10]
+
+
+def _derive_chunk_facets(section: str, content: str, metadata: dict[str, Any], doc_type: str) -> dict[str, Any]:
+    combined = f"{section or ''}\n{content or ''}"
+    domains = list(dict.fromkeys(
+        [str(metadata.get("domain")).upper()] if metadata.get("domain") else []
+        + _extract_domain_mentions(combined)
+    ))
+    protocol_match = PROTOCOL_RE.search(combined)
+    variable_mentions = _extract_variable_mentions(combined)
+    variable_aliases = list(dict.fromkeys(
+        alias
+        for var in variable_mentions
+        for alias in VARIABLE_ALIAS_MAP.get(var.upper(), ())
+    ))
+    return {
+        "section_type": _infer_section_type(section or "", content or "", doc_type),
+        "rule_ids": _extract_rule_ids(combined),
+        "domains": domains,
+        "variable_mentions": variable_mentions,
+        "variable_aliases": variable_aliases,
+        "operational_aliases": _extract_operational_aliases(combined),
+        "form_names": _extract_form_names(section or "", content or "", doc_type),
+        "protocol_number": protocol_match.group(1).strip() if protocol_match else None,
+    }
+
+
+def _aggregate_document_facets(doc_meta: dict[str, Any], chunk_facets: list[dict[str, Any]]) -> dict[str, Any]:
+    aggregated = dict(doc_meta)
+    for key in ("section_types", "rule_ids", "domains", "variable_mentions", "variable_aliases", "form_names", "operational_aliases"):
+        values: list[str] = []
+        for facets in chunk_facets:
+            for item in facets.get(key, []) or []:
+                normalized = str(item).strip()
+                if normalized and normalized not in values:
+                    values.append(normalized)
+        if values:
+            aggregated[key] = values[:50]
+    if not aggregated.get("protocol_number"):
+        for facets in chunk_facets:
+            if facets.get("protocol_number"):
+                aggregated["protocol_number"] = facets["protocol_number"]
+                break
+    return aggregated
+
+
+def _build_structured_summary_prefix(doc_name: str, doc_type: str, doc_meta: dict[str, Any], section_type: str = "", rule_ids: list[str] | None = None, domains: list[str] | None = None) -> str:
+    parts = [f"document={doc_name}", f"doc_type={doc_type}"]
+    for key in ("protocol_number", "study_name", "sponsor", "compound", "document_date", "version"):
+        value = doc_meta.get(key)
+        if value:
+            parts.append(f"{key}={value}")
+    if doc_meta.get("study_phase"):
+        parts.append(f"study_phase={doc_meta['study_phase']}")
+    if section_type and section_type != "general":
+        parts.append(f"section_type={section_type}")
+    if domains:
+        parts.append(f"domains={','.join(domains[:8])}")
+    if rule_ids:
+        parts.append(f"rule_ids={','.join(rule_ids[:8])}")
+    return " | ".join(parts)
+
+
+async def _upsert_canonical_alias(conn, org_id: str, canonical_form: str,
+                                  entity_type: str, aliases: list[str],
+                                  concept_node_id: Optional[str] = None) -> None:
+    cleaned = list(dict.fromkeys(alias.strip() for alias in aliases if alias and alias.strip()))
+    if not canonical_form or not cleaned:
+        return
+    await conn.execute("""
+        INSERT INTO entity_canonical_map (org_id, canonical_form, entity_type, aliases, concept_node_id)
+        VALUES ($1::uuid, $2, $3, $4, $5)
+        ON CONFLICT (org_id, canonical_form, entity_type)
+        DO UPDATE SET aliases = ARRAY(
+            SELECT DISTINCT unnest(entity_canonical_map.aliases || EXCLUDED.aliases)
+        ), concept_node_id = COALESCE(entity_canonical_map.concept_node_id, EXCLUDED.concept_node_id),
+           updated_at = NOW()
+    """, org_id, canonical_form, entity_type, cleaned, concept_node_id)
+
+
+async def _seed_builtin_canonical_aliases(conn, org_id: str) -> None:
+    for domain, aliases in DOMAIN_ALIASES.items():
+        await _upsert_canonical_alias(conn, org_id, domain, "sdtm_domain", list(aliases))
+    for canonical, aliases in VARIABLE_ALIAS_MAP.items():
+        await _upsert_canonical_alias(conn, org_id, canonical, "sdtm_variable", list(aliases))
+    for canonical, aliases in OPERATIONAL_ALIAS_MAP.items():
+        await _upsert_canonical_alias(conn, org_id, canonical, "clinical_concept", [canonical, *aliases])
+    for section_type, patterns in SECTION_TYPE_PATTERNS.items():
+        await _upsert_canonical_alias(conn, org_id, section_type.replace("_", " "), "section_type", [section_type, *patterns])
+
+
 # ─── Document Type Detection ─────────────────────────────────────────────────
 
 SYSTEM_TYPE_DETECTION = """You are a clinical trial document classification expert.
@@ -235,8 +475,102 @@ Respond ONLY with valid JSON matching the schema exactly:
   "structure_description": "brief description of document structure"
 }"""
 
+_DATE_IN_NAME_RE = re.compile(r"\b(20\d{2}[-_](?:0[1-9]|1[0-2])[-_](?:0[1-9]|[12]\d|3[01]))\b")
+_VERSION_IN_NAME_RE = re.compile(r"\b(v(?:ersion)?\s*\d+(?:\.\d+){0,2}|\d+\.\d+(?:\.\d+)?)\b", re.IGNORECASE)
+
+
+def _extract_filename_metadata(filename: str) -> dict[str, Any]:
+    base = filename.rsplit("/", 1)[-1]
+    stem = base.rsplit(".", 1)[0]
+    out: dict[str, Any] = {}
+
+    m_date = _DATE_IN_NAME_RE.search(stem)
+    if m_date:
+        out["document_date"] = m_date.group(1).replace("_", "-")
+
+    m_ver = _VERSION_IN_NAME_RE.search(stem)
+    if m_ver:
+        ver = m_ver.group(1).strip()
+        ver = re.sub(r"^version\s*", "v", ver, flags=re.IGNORECASE)
+        out["version"] = ver
+
+    m_proto = re.search(
+        r"\b(?:protocol|prot)[-_\s]*([A-Z0-9]{2,}(?:[-_][A-Z0-9]{1,8}){0,3})\b",
+        stem,
+        flags=re.IGNORECASE,
+    )
+    if m_proto:
+        out["protocol_number"] = m_proto.group(1).replace("_", "-").upper()
+
+    return out
+
+
+def _strong_filename_type_detection(filename: str, text_excerpt: str) -> Optional[dict[str, Any]]:
+    lower_name = filename.lower()
+    compact = re.sub(r"[^a-z0-9]", "", lower_name)
+    text_lower = (text_excerpt or "").lower()
+    meta = _extract_filename_metadata(filename)
+
+    if (
+        "sdtmig" in compact
+        or ("sdtm" in lower_name and "implementation" in lower_name and "guide" in lower_name)
+        or ("study data tabulation model" in text_lower and "implementation guide" in text_lower)
+    ):
+        return {
+            "detected_type": "sdtm_ig",
+            "confidence": 0.98,
+            "reasoning": "strong filename/content hint matched SDTM Implementation Guide",
+            "alternative_types": [{"type": "adam_ig", "confidence": 0.25}],
+            "metadata_extracted": meta,
+            "key_phrases": ["SDTMIG", "Implementation Guide"],
+            "structure_description": "deterministic filename/content classification",
+        }
+
+    if (
+        "adamig" in compact
+        or ("adam" in lower_name and "implementation" in lower_name and "guide" in lower_name)
+        or ("analysis data model" in text_lower and "implementation guide" in text_lower)
+    ):
+        return {
+            "detected_type": "adam_ig",
+            "confidence": 0.98,
+            "reasoning": "strong filename/content hint matched ADaM Implementation Guide",
+            "alternative_types": [{"type": "sdtm_ig", "confidence": 0.25}],
+            "metadata_extracted": meta,
+            "key_phrases": ["ADaMIG", "Implementation Guide"],
+            "structure_description": "deterministic filename/content classification",
+        }
+
+    if "protocol" in lower_name and "sap" not in lower_name:
+        return {
+            "detected_type": "protocol",
+            "confidence": 0.92,
+            "reasoning": "strong filename hint matched protocol",
+            "alternative_types": [{"type": "sap", "confidence": 0.25}],
+            "metadata_extracted": meta,
+            "key_phrases": ["protocol"],
+            "structure_description": "deterministic filename classification",
+        }
+
+    if "statistical analysis plan" in lower_name or re.search(r"\bsap\b", lower_name):
+        return {
+            "detected_type": "sap",
+            "confidence": 0.92,
+            "reasoning": "strong filename hint matched SAP",
+            "alternative_types": [{"type": "protocol", "confidence": 0.25}],
+            "metadata_extracted": meta,
+            "key_phrases": ["SAP", "statistical analysis plan"],
+            "structure_description": "deterministic filename classification",
+        }
+
+    return None
+
 async def detect_document_type(text_excerpt: str, filename: str) -> dict:
     """Use LLM to auto-detect document type from text excerpt."""
+    strong = _strong_filename_type_detection(filename, text_excerpt)
+    if strong is not None:
+        return strong
+
     prompt = f"""Filename: {filename}
 
 Document excerpt (first 3000 chars):
@@ -265,6 +599,29 @@ def _keyword_type_detection(text: str, filename: str) -> dict:
     """Fallback keyword-based document type detection."""
     text_lower = text.lower()
     fname_lower = filename.lower()
+    compact = re.sub(r"[^a-z0-9]", "", fname_lower)
+
+    # Strong deterministic hints should still work when LLM is unavailable.
+    if "sdtmig" in compact:
+        return {
+            "detected_type": "sdtm_ig",
+            "confidence": 0.95,
+            "reasoning": "keyword fallback: strong SDTMIG filename match",
+            "alternative_types": [{"type": "adam_ig", "confidence": 0.25}],
+            "metadata_extracted": _extract_filename_metadata(filename),
+            "key_phrases": ["SDTMIG"],
+            "structure_description": "deterministic fallback classification",
+        }
+    if "adamig" in compact:
+        return {
+            "detected_type": "adam_ig",
+            "confidence": 0.95,
+            "reasoning": "keyword fallback: strong ADaMIG filename match",
+            "alternative_types": [{"type": "sdtm_ig", "confidence": 0.25}],
+            "metadata_extracted": _extract_filename_metadata(filename),
+            "key_phrases": ["ADaMIG"],
+            "structure_description": "deterministic fallback classification",
+        }
 
     rules = [
         ("protocol",    ["protocol number", "inclusion criteria", "exclusion criteria", "investigational product"], 0.0),
@@ -286,7 +643,7 @@ def _keyword_type_detection(text: str, filename: str) -> dict:
         rules[rules.index(next(r for r in rules if r[0] == type_code))] = (type_code, keywords, score)
 
     best = max(rules, key=lambda r: r[2])
-    confidence = min(best[2], 0.65)  # cap keyword detection at 0.65
+    confidence = min(best[2], 0.65)  # normal fallback cap
     return {
         "detected_type": best[0] if confidence > 0.3 else "unknown",
         "confidence": confidence,
@@ -494,6 +851,10 @@ async def _upsert_node(conn, node_type: str, external_id: str, org_id: str,
         external_id, node_type, org_id
     )
     if existing:
+        await conn.execute(
+            "UPDATE context_nodes SET label=$1, metadata = COALESCE(metadata, '{}'::jsonb) || $2::jsonb, updated_at=NOW() WHERE id=$3",
+            label, json.dumps(metadata or {}), existing,
+        )
         # Update embedding if we now have one but the stored node doesn't
         if embedding:
             emb_str = _vec_str(embedding)
@@ -524,6 +885,248 @@ async def _upsert_edge(conn, source_id: str, target_id: str, edge_type: str,
     """, source_id, target_id, edge_type, weight, json.dumps(metadata or {}))
 
 
+async def _upsert_document_metadata(conn, doc_id: str, metadata: dict[str, Any]) -> None:
+    await conn.execute(
+        "UPDATE documents SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb, updated_at=NOW() WHERE id=$2",
+        json.dumps(metadata or {}), doc_id,
+    )
+
+
+async def _build_deterministic_facet_graph(
+    conn,
+    doc_id: str,
+    doc_node_id: str,
+    org_id: str,
+    study_id: Optional[str],
+    doc_type: str,
+    doc_meta: dict[str, Any],
+    chunk_records: list[dict[str, Any]],
+) -> None:
+    await _seed_builtin_canonical_aliases(conn, org_id)
+
+    section_nodes: dict[str, str] = {}
+    rule_nodes: dict[str, str] = {}
+    form_nodes: dict[str, str] = {}
+    concept_nodes: dict[str, str] = {}
+
+    for chunk in chunk_records:
+        chunk_node_id = chunk.get("chunk_node_id")
+        if not chunk_node_id:
+            continue
+        facets = chunk.get("derived_facets") or {}
+
+        section_type = facets.get("section_type") or "general"
+        if section_type != "general":
+            concept_key = f"section_type::{section_type}"
+            concept_id = concept_nodes.get(concept_key)
+            if not concept_id:
+                concept_id = await _upsert_node(
+                    conn, "concept", concept_key, org_id, None,
+                    section_type.replace("_", " ").title(),
+                    {"entity_type": "section_type", "section_type": section_type},
+                )
+                concept_nodes[concept_key] = concept_id
+            entity_key = f"{doc_id}::section_type::{section_type}"
+            entity_id = section_nodes.get(entity_key)
+            if not entity_id:
+                entity_id = await _upsert_node(
+                    conn, "entity", entity_key, org_id, study_id,
+                    section_type.replace("_", " ").title(),
+                    {"type": "section_type", "section_type": section_type, "doc_id": doc_id},
+                )
+                section_nodes[entity_key] = entity_id
+                await _upsert_edge(conn, entity_id, concept_id, "is_type")
+                await _upsert_edge(conn, entity_id, doc_node_id, "extracted_from")
+            await _upsert_edge(conn, chunk_node_id, entity_id, "references", metadata={"reason": "section_type"})
+
+        for rule_id in facets.get("rule_ids", []):
+            concept_key = f"conformance_rule::{rule_id.lower()}"
+            concept_id = concept_nodes.get(concept_key)
+            if not concept_id:
+                concept_id = await _upsert_node(
+                    conn, "concept", concept_key, org_id, None,
+                    rule_id, {"entity_type": "conformance_rule", "rule_id": rule_id},
+                )
+                concept_nodes[concept_key] = concept_id
+                await _upsert_canonical_alias(conn, org_id, rule_id, "conformance_rule", [rule_id, f"rule {rule_id}", rule_id.lower()], concept_id)
+            entity_key = f"{doc_id}::rule::{rule_id}"
+            entity_id = rule_nodes.get(entity_key)
+            if not entity_id:
+                entity_id = await _upsert_node(
+                    conn, "entity", entity_key, org_id, study_id,
+                    rule_id, {"type": "conformance_rule", "rule_id": rule_id, "doc_id": doc_id},
+                )
+                rule_nodes[entity_key] = entity_id
+                await _upsert_edge(conn, entity_id, concept_id, "is_type")
+                await _upsert_edge(conn, entity_id, doc_node_id, "extracted_from")
+            await _upsert_edge(conn, chunk_node_id, entity_id, "references", metadata={"reason": "rule_id"})
+
+        for form_name in facets.get("form_names", []):
+            normalized = re.sub(r"\s+", " ", form_name).strip()
+            if not normalized:
+                continue
+            concept_key = f"form_name::{normalized.lower()}"
+            concept_id = concept_nodes.get(concept_key)
+            if not concept_id:
+                concept_id = await _upsert_node(
+                    conn, "concept", concept_key, org_id, None,
+                    normalized, {"entity_type": "form_name", "form_name": normalized},
+                )
+                concept_nodes[concept_key] = concept_id
+                await _upsert_canonical_alias(conn, org_id, normalized, "form_name", [normalized, normalized.lower()], concept_id)
+            entity_key = f"{doc_id}::form::{normalized.lower()}"
+            entity_id = form_nodes.get(entity_key)
+            if not entity_id:
+                entity_id = await _upsert_node(
+                    conn, "entity", entity_key, org_id, study_id,
+                    normalized, {"type": "form_name", "form_name": normalized, "doc_id": doc_id},
+                )
+                form_nodes[entity_key] = entity_id
+                await _upsert_edge(conn, entity_id, concept_id, "is_type")
+                await _upsert_edge(conn, entity_id, doc_node_id, "extracted_from")
+            await _upsert_edge(conn, chunk_node_id, entity_id, "references", metadata={"reason": "form_name"})
+
+        for domain in facets.get("domains", []):
+            domain_code = str(domain).upper()
+            domain_node_id = await _upsert_node(
+                conn, "sdtm_domain", f"{org_id}::domain::{domain_code}",
+                org_id, study_id, domain_code,
+                {"domain": domain_code, "source": "deterministic_reference", "doc_id": doc_id},
+            )
+            await _upsert_edge(conn, doc_node_id, domain_node_id, "references", metadata={"reason": "domain_reference"})
+            await _upsert_edge(conn, chunk_node_id, domain_node_id, "references", metadata={"reason": "domain_reference"})
+
+        # USDM-IG documents contain plain English prose; all-caps words are not
+        # SDTM variable names. Skip variable extraction to prevent false references.
+        if doc_type != "usdm_ig":
+            for variable in facets.get("variable_mentions", []):
+                var = str(variable).upper().strip()
+                if not var:
+                    continue
+                inferred_domain = var[:2] if var[:2] in DOMAIN_ALIASES else ""
+                var_key = f"{inferred_domain}::{var}" if inferred_domain else var
+                var_node_id = await _upsert_node(
+                    conn, "sdtm_variable", f"{org_id}::var::{var_key}",
+                    org_id, study_id, var,
+                    {
+                        "variable": var,
+                        "domain": inferred_domain,
+                        "source": "deterministic_reference",
+                        "doc_id": doc_id,
+                    },
+                )
+                concept_key = f"sdtm_variable::{var_key.lower()}"
+                concept_id = concept_nodes.get(concept_key)
+                if not concept_id:
+                    concept_id = await _upsert_node(
+                        conn, "concept", concept_key, org_id, None,
+                        f"{inferred_domain}.{var}" if inferred_domain else var,
+                        {"entity_type": "sdtm_variable", "domain": inferred_domain, "variable": var},
+                    )
+                    concept_nodes[concept_key] = concept_id
+                await _upsert_edge(conn, var_node_id, concept_id, "is_type")
+                await _upsert_edge(conn, doc_node_id, var_node_id, "references", metadata={"reason": "variable_reference"})
+                await _upsert_edge(conn, chunk_node_id, var_node_id, "references", metadata={"reason": "variable_reference"})
+                if inferred_domain:
+                    domain_node_id = await _upsert_node(
+                        conn, "sdtm_domain", f"{org_id}::domain::{inferred_domain}",
+                        org_id, study_id, inferred_domain,
+                        {"domain": inferred_domain, "source": "deterministic_reference", "doc_id": doc_id},
+                    )
+                    await _upsert_edge(conn, domain_node_id, var_node_id, "has_variable")
+                aliases = list(VARIABLE_ALIAS_MAP.get(var, ()))
+                if aliases:
+                    await _upsert_canonical_alias(conn, org_id, var, "sdtm_variable", [var, var.lower(), *aliases], concept_id)
+
+        for alias in facets.get("operational_aliases", []):
+            canonical = str(alias).strip()
+            if not canonical:
+                continue
+            concept_key = f"clinical_concept::{canonical.lower()}"
+            concept_id = concept_nodes.get(concept_key)
+            if not concept_id:
+                concept_id = await _upsert_node(
+                    conn, "concept", concept_key, org_id, None,
+                    canonical, {"entity_type": "clinical_concept", "canonical_form": canonical},
+                )
+                concept_nodes[concept_key] = concept_id
+                await _upsert_canonical_alias(conn, org_id, canonical, "clinical_concept", [canonical, canonical.lower(), *OPERATIONAL_ALIAS_MAP.get(canonical, ())], concept_id)
+            await _upsert_edge(conn, chunk_node_id, concept_id, "references", metadata={"reason": "operational_alias"})
+            await _upsert_edge(conn, doc_node_id, concept_id, "references", metadata={"reason": "operational_alias"})
+
+    protocol_number = doc_meta.get("protocol_number")
+    if protocol_number:
+        related_docs = await conn.fetch(
+            "SELECT id FROM documents WHERE org_id=$1 AND id<>$2 AND metadata->'classifier_metadata'->>'protocol_number'=$3",
+            org_id, doc_id, protocol_number,
+        )
+        for related in related_docs:
+            related_node_id = await conn.fetchval(
+                "SELECT id FROM context_nodes WHERE external_id=$1 AND node_type='document' AND org_id=$2",
+                str(related["id"]), org_id,
+            )
+            if related_node_id:
+                await _upsert_edge(conn, doc_node_id, str(related_node_id), "references", metadata={"reason": "shared_protocol_number", "protocol_number": protocol_number})
+                await _upsert_edge(conn, str(related_node_id), doc_node_id, "references", metadata={"reason": "shared_protocol_number", "protocol_number": protocol_number})
+
+    # ── Type-based cross-document linking ───────────────────────────────────
+    # Link complementary document types within the SAME STUDY only.
+    # Without a study_id we skip org-wide fallback to prevent cross-protocol
+    # contamination when multiple studies are indexed under the same org.
+    _DOC_TYPE_COMPLEMENTS: dict[str, tuple[str, ...]] = {
+        "sdtm_ig":  ("protocol", "sap", "adam_ig", "usdm_ig"),
+        "adam_ig":  ("protocol", "sap", "sdtm_ig"),
+        "protocol": ("sdtm_ig", "adam_ig", "sap", "csr", "usdm_ig"),
+        "sap":      ("protocol", "sdtm_ig", "adam_ig"),
+        "usdm_ig":  ("protocol", "sdtm_ig"),
+    }
+    complement_types = _DOC_TYPE_COMPLEMENTS.get(doc_type)
+    if complement_types and study_id:
+        # Only link documents that share the exact same study_id — never fall back
+        # to org-wide linking which would intertwine different protocol graphs.
+        comp_rows = await conn.fetch(
+            "SELECT id, document_type FROM documents "
+            "WHERE org_id=$1 AND id<>$2 AND document_type=ANY($3) AND study_id=$4",
+            org_id, doc_id, list(complement_types), study_id,
+        )
+        for related in comp_rows:
+            rel_node_id = await conn.fetchval(
+                "SELECT id FROM context_nodes WHERE external_id=$1 AND node_type='document' AND org_id=$2",
+                str(related["id"]), org_id,
+            )
+            if rel_node_id:
+                edge_meta = {"reason": "complementary_doc_type",
+                             "source_type": doc_type, "target_type": related["document_type"]}
+                await _upsert_edge(conn, doc_node_id, rel_node_id, "references", metadata=edge_meta)
+                await _upsert_edge(conn, rel_node_id, doc_node_id, "references",
+                                   metadata={**edge_meta,
+                                             "source_type": related["document_type"],
+                                             "target_type": doc_type})
+
+
+async def _trigger_ich_m11_validation(
+    doc_id: str, org_id: str, study_id: Optional[str], protocol_text: str
+):
+    """Fire-and-forget: launch ICH M11 structural validation after protocol graph build."""
+    try:
+        async with httpx.AsyncClient(timeout=10) as client:
+            await client.post(
+                f"{settings.agent_runtime_url}/runs/by-slug",
+                json={
+                    "agent_slug": "ich-m11-validator",
+                    "org_id":     org_id,
+                    "study_id":   study_id,
+                    "input_context": {
+                        "protocol_text":  protocol_text[:20000],
+                        "trigger_source": "context_graph",
+                        "document_id":    doc_id,
+                    },
+                },
+            )
+    except Exception as exc:
+        log.warning("ich_m11.trigger_failed", doc_id=doc_id, error=str(exc))
+
+
 async def build_document_graph(doc_id: str, org_id: str, study_id: Optional[str]):
     """
     Build the context graph for a processed document.
@@ -546,7 +1149,7 @@ async def build_document_graph(doc_id: str, org_id: str, study_id: Optional[str]
 
     async with db_pool.acquire() as conn:
         doc = await conn.fetchrow(
-            "SELECT id, name, document_type, study_id, org_id FROM documents WHERE id=$1", doc_id
+            "SELECT id, name, document_type, study_id, org_id, version, metadata FROM documents WHERE id=$1", doc_id
         )
         if not doc:
             log.warning("graph.build.doc_not_found", doc_id=doc_id)
@@ -563,20 +1166,32 @@ async def build_document_graph(doc_id: str, org_id: str, study_id: Optional[str]
 
         doc_type     = doc["document_type"]
         eff_study_id = (study_id or str(doc["study_id"])) if doc["study_id"] else None
+        doc_meta     = _json_dict(doc["metadata"])
+        classifier_meta = _clean_classifier_metadata(doc_meta.get("classifier_metadata", {}))
+        if doc.get("version") and not classifier_meta.get("version"):
+            classifier_meta["version"] = str(doc["version"])
+        doc_meta["classifier_metadata"] = classifier_meta
 
         # ── 1. Document node ────────────────────────────────────────────────
         doc_node_id = await _upsert_node(
             conn, "document", doc_id, org_id, eff_study_id,
             doc["name"],
-            {"document_type": doc_type, "name": doc["name"]},
+            {"document_type": doc_type, "name": doc["name"], **doc_meta},
         )
 
         # ── 2. Chunk nodes + contains edges ─────────────────────────────────
         chunk_nodes: dict[str, str] = {}
+        chunk_records: list[dict[str, Any]] = []
         for chunk in chunks:
             chunk_emb = _parse_embedding(chunk["embedding"])
             meta_raw  = chunk["metadata"]
             meta      = json.loads(meta_raw) if isinstance(meta_raw, str) else (dict(meta_raw) if meta_raw else {})
+            derived_facets = _derive_chunk_facets(chunk["section"] or "", chunk["content"] or "", meta, doc_type)
+            merged_chunk_meta = {**meta, **derived_facets}
+            await conn.execute(
+                "UPDATE document_chunks SET metadata = COALESCE(metadata, '{}'::jsonb) || $1::jsonb WHERE id=$2",
+                json.dumps(derived_facets), chunk["id"],
+            )
 
             chunk_node_id = await _upsert_node(
                 conn, "chunk", str(chunk["id"]), org_id, eff_study_id,
@@ -586,14 +1201,39 @@ async def build_document_graph(doc_id: str, org_id: str, study_id: Optional[str]
                     "page":         chunk["page_number"],
                     "chunk_index":  chunk["chunk_index"],
                     "document_id":  doc_id,
-                    "content_type": meta.get("content_type", "text"),
-                    "domain":       meta.get("domain"),
-                    "columns":      meta.get("columns"),
+                    "content_type": merged_chunk_meta.get("content_type", "text"),
+                    "domain":       merged_chunk_meta.get("domain"),
+                    "columns":      merged_chunk_meta.get("columns"),
+                    "section_type": merged_chunk_meta.get("section_type"),
+                    "rule_ids":      merged_chunk_meta.get("rule_ids", []),
+                    "domains":       merged_chunk_meta.get("domains", []),
+                    "variable_mentions": merged_chunk_meta.get("variable_mentions", []),
+                    "variable_aliases":  merged_chunk_meta.get("variable_aliases", []),
+                    "form_names":    merged_chunk_meta.get("form_names", []),
                 },
                 chunk_emb,
             )
             chunk_nodes[str(chunk["id"])] = chunk_node_id
             await _upsert_edge(conn, doc_node_id, chunk_node_id, "contains")
+            chunk_records.append({
+                "id": str(chunk["id"]),
+                "section": chunk["section"] or "",
+                "content": chunk["content"] or "",
+                "metadata": merged_chunk_meta,
+                "derived_facets": derived_facets,
+                "chunk_node_id": chunk_node_id,
+            })
+
+        doc_meta = _aggregate_document_facets(doc_meta, [c["derived_facets"] for c in chunk_records])
+        await _upsert_document_metadata(conn, doc_id, doc_meta)
+        doc_node_id = await _upsert_node(
+            conn, "document", doc_id, org_id, eff_study_id,
+            doc["name"],
+            {"document_type": doc_type, "name": doc["name"], **doc_meta},
+        )
+        await _build_deterministic_facet_graph(
+            conn, doc_id, doc_node_id, org_id, eff_study_id, doc_type, doc_meta, chunk_records,
+        )
 
         # ── 3a. Tier-1 section index — makes doc searchable immediately ─────
         await _update_context_index(doc_id, org_id, eff_study_id, doc_type)
@@ -721,6 +1361,13 @@ async def build_document_graph(doc_id: str, org_id: str, study_id: Optional[str]
 
     # ── 5. Tier-2 / Tier-3 index (entities now exist) ───────────────────────
     await _update_context_index(doc_id, org_id, eff_study_id, doc_type)
+
+    # ── 6. ICH M11 validation — fire-and-forget for protocol documents ───────
+    if doc_type == "protocol" and eff_study_id:
+        full_text = " ".join(c["content"] for c in chunk_records if c.get("content"))
+        asyncio.create_task(
+            _trigger_ich_m11_validation(doc_id, org_id, eff_study_id, full_text)
+        )
 
 
 def _parse_embedding(raw) -> Optional[list[float]]:
@@ -957,8 +1604,9 @@ async def _build_xpt_entity_nodes(
     """
     Build graph nodes and context_index entries for XPT dataset documents.
     Deterministic — no LLM. Uses the variable-definitions table chunk
-    (content_type='table') created by chunk_xpt().
+    (content_type='table') and statistics chunk created by chunk_xpt().
     """
+    import re as _re_xpt
     t_xpt = _time.monotonic()
     table_chunk = await conn.fetchrow("""
         SELECT metadata FROM document_chunks
@@ -976,8 +1624,19 @@ async def _build_xpt_entity_nodes(
     domain          = meta.get("domain") or ""
     actual_cols     = list(variable_labels.keys())
 
+    # G7: If domain is still empty, try to read it from the statistics/header chunk
+    if not domain:
+        stats_hdr = await conn.fetchrow("""
+            SELECT metadata FROM document_chunks
+            WHERE document_id=$1 AND (metadata::jsonb->>'content_type') IN ('statistics','text')
+            LIMIT 1
+        """, doc_id)
+        if stats_hdr:
+            sh_meta = json.loads(stats_hdr["metadata"]) if isinstance(stats_hdr["metadata"], str) else dict(stats_hdr["metadata"] or {})
+            domain = sh_meta.get("domain") or ""
+
     await _emit_log(conn, doc_id, org_id, "xpt_graph", "started",
-        f"Building XPT variable graph for {domain}",
+        f"Building XPT variable graph for {domain or 'unknown'}",
         {"domain": domain, "variables": len(actual_cols)})
 
     # n_rows from the header text chunk
@@ -991,7 +1650,7 @@ async def _build_xpt_entity_nodes(
         hm     = json.loads(hdr["metadata"]) if isinstance(hdr["metadata"], str) else dict(hdr["metadata"] or {})
         n_rows = hm.get("row_count", 0)
 
-    # ── Domain node (shared with SDTM IG entries) ─────────────────────────────
+    # ── Domain node (shared with SDTM IG entries) ──────────────────────────────
     domain_node_id = None
     if domain:
         domain_node_id = await _upsert_node(
@@ -1002,7 +1661,7 @@ async def _build_xpt_entity_nodes(
         )
         await _upsert_edge(conn, domain_node_id, doc_node_id, "extracted_from")
 
-    # ── Per-variable nodes ────────────────────────────────────────────────────
+    # ── Per-variable nodes ─────────────────────────────────────────────────────
     var_node_ids: list[str] = []
     for col in actual_cols:
         label       = variable_labels.get(col, col)
@@ -1017,7 +1676,7 @@ async def _build_xpt_entity_nodes(
         if domain_node_id:
             await _upsert_edge(conn, domain_node_id, var_node_id, "has_variable")
 
-        # Per-variable context_index entry (DELETE + INSERT to handle NULL study_id)
+        # Per-variable context_index entry
         summary    = (
             f"SDTM variable {col} label: {label} "
             f"domain: {domain} source: XPT dataset {doc_name}"
@@ -1025,7 +1684,6 @@ async def _build_xpt_entity_nodes(
         entity_key = f"sdtm_variable_{domain}_{col}_{doc_id[:8]}"
         embs       = await _embed([summary])
         emb_str    = _vec_str(embs[0]) if embs and embs[0] else None
-
         await conn.execute(
             "DELETE FROM context_index WHERE org_id=$1 AND entity_key=$2",
             org_id, entity_key,
@@ -1036,9 +1694,9 @@ async def _build_xpt_entity_nodes(
             VALUES (gen_random_uuid(),$1,$2,$3,'sdtm_variable',$4,$5::uuid[],$6::vector)
         """, org_id, study_id, entity_key, summary, [var_node_id], emb_str)
 
-    # ── Domain-level summary context_index entry ──────────────────────────────
+    # ── Domain-level summary context_index entry ───────────────────────────────
     if actual_cols:
-        col_list   = ", ".join(
+        col_list = ", ".join(
             f"{c}({variable_labels.get(c, c)})" for c in actual_cols[:30]
         )
         summary    = (
@@ -1049,7 +1707,6 @@ async def _build_xpt_entity_nodes(
         entity_key = f"sdtm_xpt_{domain}_{doc_id[:8]}"
         embs       = await _embed([summary])
         emb_str    = _vec_str(embs[0]) if embs and embs[0] else None
-
         await conn.execute(
             "DELETE FROM context_index WHERE org_id=$1 AND entity_key=$2",
             org_id, entity_key,
@@ -1060,23 +1717,33 @@ async def _build_xpt_entity_nodes(
             VALUES (gen_random_uuid(),$1,$2,$3,'sdtm_xpt_dataset',$4,$5::uuid[],$6::vector)
         """, org_id, study_id, entity_key, summary, var_node_ids[:50], emb_str)
 
-    # ── Dataset statistics context_index entry (unique patients, rows) ────────
+    # ── Statistics chunk: patients, sites, arms, distributions ────────────────
     stats_chunk = await conn.fetchrow("""
-        SELECT content FROM document_chunks
+        SELECT content, metadata FROM document_chunks
         WHERE document_id=$1 AND (metadata::jsonb->>'content_type') = 'statistics'
         LIMIT 1
     """, doc_id)
+    sc_meta: dict = {}
     if stats_chunk:
-        import re as _re_stats
+        sc_meta_raw = stats_chunk["metadata"]
+        sc_meta = json.loads(sc_meta_raw) if isinstance(sc_meta_raw, str) else dict(sc_meta_raw or {})
         sc = stats_chunk["content"]
-        subj_m = _re_stats.search(r'Unique (?:patients|subjects)[^:]*:\s*(\d+)', sc)
-        row_m  = _re_stats.search(r'Total records[^:]*:\s*(\d+)', sc)
+
+        # Patient count
+        subj_m = _re_xpt.search(r'Unique (?:patients|subjects)[^:]*:\s*(\d+)', sc)
+        row_m  = _re_xpt.search(r'Total records[^:]*:\s*(\d+)', sc)
+        arm_m  = _re_xpt.search(r'Treatment arms[^\n]*:\s*([^\n]+)', sc)
+        site_m = _re_xpt.search(r'Site distribution[^\n]*:\s*([^\n]+)', sc)
+
         if subj_m or row_m:
             n_unique = subj_m.group(1) if subj_m else "unknown"
             n_total  = row_m.group(1) if row_m else str(n_rows)
+            arm_info = f"  Treatment arms: {arm_m.group(1).strip()}." if arm_m else ""
+            site_info = f"  Sites: {site_m.group(1).strip()}." if site_m else ""
             stats_summary = (
                 f"SDTM {domain} dataset ({doc_name}) contains {n_unique} unique patients "
-                f"(distinct USUBJID values) across {n_total} total records. "
+                f"(distinct USUBJID values) across {n_total} total records."
+                f"{arm_info}{site_info} "
                 f"To answer 'how many patients', 'how many subjects', or 'unique patients' "
                 f"use: {n_unique} unique patients."
             )
@@ -1093,15 +1760,91 @@ async def _build_xpt_entity_nodes(
                 VALUES (gen_random_uuid(),$1,$2,$3,'sdtm_xpt_dataset',$4,$5::uuid[],$6::vector)
             """, org_id, study_id, stats_key, stats_summary, var_node_ids[:5], stats_emb_str)
 
+        # Value-distribution index entries for each distribution line
+        # e.g. "AESEV distribution: MILD:15  MODERATE:8  SEVERE:3"
+        for dist_m in _re_xpt.finditer(r'(\w+) distribution: ([^\n]+)', sc):
+            dist_var = dist_m.group(1)
+            dist_vals = dist_m.group(2).strip()
+            dist_summary = (
+                f"SDTM {domain} dataset ({doc_name}): {dist_var} value distribution: {dist_vals}. "
+                f"Answers questions like 'how many {dist_var} values', "
+                f"'distribution of {dist_var}', 'count by {dist_var}'."
+            )
+            dist_key = f"sdtm_dist_{domain}_{dist_var}_{doc_id[:8]}"
+            dist_embs = await _embed([dist_summary])
+            dist_emb_str = _vec_str(dist_embs[0]) if dist_embs and dist_embs[0] else None
+            await conn.execute(
+                "DELETE FROM context_index WHERE org_id=$1 AND entity_key=$2",
+                org_id, dist_key,
+            )
+            await conn.execute("""
+                INSERT INTO context_index
+                    (id, org_id, study_id, entity_key, entity_type, summary, source_node_ids, embedding)
+                VALUES (gen_random_uuid(),$1,$2,$3,'sdtm_xpt_dataset',$4,$5::uuid[],$6::vector)
+            """, org_id, study_id, dist_key, dist_summary, var_node_ids[:3], dist_emb_str)
+
+    # ── G6: Site value nodes (one per unique SITEID) ───────────────────────────
+    site_node_ids: list[str] = []
+    unique_sites = sc_meta.get("unique_sites", 0)
+    if unique_sites and unique_sites <= 200:
+        # Extract site IDs from row chunks
+        site_rows = await conn.fetch("""
+            SELECT DISTINCT (regexp_matches(content, 'SITEID=([A-Z0-9]{1,20})'))[1] AS site
+            FROM document_chunks
+            WHERE document_id=$1 AND content ~ 'SITEID='
+        """, doc_id)
+        for sr in site_rows:
+            sid = sr["site"]
+            if not sid:
+                continue
+            site_nid = await _upsert_node(
+                conn, "clinical_site", f"{org_id}::site::{sid}",
+                org_id, study_id, f"Site {sid}",
+                {"siteid": sid, "source": "xpt_dataset", "doc_id": doc_id},
+            )
+            site_node_ids.append(site_nid)
+            await _upsert_edge(conn, site_nid, doc_node_id, "contributes_to")
+            if domain_node_id:
+                await _upsert_edge(conn, domain_node_id, site_nid, "has_site")
+
+    # ── G6: Treatment arm nodes (one per unique arm) ───────────────────────────
+    arm_node_ids: list[str] = []
+    for arm_col_patt in ("ARMCD=([A-Z0-9]{1,20})", "TRTP=([A-Z0-9 ]{1,30}?)  "):
+        arm_rows = await conn.fetch(f"""
+            SELECT DISTINCT (regexp_matches(content, $1))[1] AS arm
+            FROM document_chunks
+            WHERE document_id=$2 AND content ~ $3
+            LIMIT 20
+        """, arm_col_patt, doc_id, arm_col_patt.split("=")[0])
+        if arm_rows:
+            for ar in arm_rows:
+                arm_val = (ar["arm"] or "").strip()
+                if not arm_val:
+                    continue
+                arm_nid = await _upsert_node(
+                    conn, "treatment_arm", f"{org_id}::arm::{arm_val}",
+                    org_id, study_id, f"Treatment arm {arm_val}",
+                    {"armcd": arm_val, "source": "xpt_dataset", "doc_id": doc_id},
+                )
+                arm_node_ids.append(arm_nid)
+                await _upsert_edge(conn, arm_nid, doc_node_id, "contributes_to")
+                if domain_node_id:
+                    await _upsert_edge(conn, domain_node_id, arm_nid, "has_arm")
+            break  # found arms with first pattern, stop
+
+    n_index = len(actual_cols) + 1 + len(arm_node_ids) + len(site_node_ids)
     await _emit_log(conn, doc_id, org_id, "xpt_graph", "completed",
-        f"Created {len(actual_cols)} variable nodes · {domain} domain",
+        f"Created {len(actual_cols)} variable nodes · {domain} domain · "
+        f"{len(site_node_ids)} sites · {len(arm_node_ids)} arms",
         {"domain": domain, "variables": len(actual_cols),
-         "index_entries": len(actual_cols) + 1,
+         "sites": len(site_node_ids), "arms": len(arm_node_ids),
+         "index_entries": n_index,
          "embedding_model": settings.embedding_model,
          "duration_ms": int((_time.monotonic() - t_xpt) * 1000)})
 
     log.info("xpt.graph.built", doc_id=doc_id, domain=domain,
-             variables=len(actual_cols), doc_name=doc_name)
+             variables=len(actual_cols), sites=len(site_node_ids),
+             arms=len(arm_node_ids), doc_name=doc_name)
 
 
 async def _update_context_index(doc_id: str, org_id: str, study_id: Optional[str],
@@ -1114,6 +1857,15 @@ async def _update_context_index(doc_id: str, org_id: str, study_id: Optional[str
     Tier 1 ensures agents can search even when LLM entity extraction was unavailable.
     """
     async with db_pool.acquire() as conn:
+        doc_row = await conn.fetchrow(
+            "SELECT name, metadata FROM documents WHERE id=$1",
+            doc_id,
+        )
+        doc_name = doc_row["name"] if doc_row else doc_id
+        doc_meta = _json_dict(doc_row["metadata"]) if doc_row else {}
+        classifier_meta = _json_dict(doc_meta.get("classifier_metadata"))
+        effective_meta = {**classifier_meta, **{k: v for k, v in doc_meta.items() if k != "classifier_metadata"}}
+
         # ── Clear stale index entries for this document ───────────────────────
         # ON CONFLICT doesn't deduplicate when study_id IS NULL (NULL!=NULL in SQL),
         # so we delete existing entries keyed to this document before reinserting.
@@ -1127,7 +1879,8 @@ async def _update_context_index(doc_id: str, org_id: str, study_id: Optional[str
             SELECT
                 COALESCE(section, 'General') AS section,
                 string_agg(content, ' ' ORDER BY chunk_index) AS body,
-                array_agg(cn.id ORDER BY dc.chunk_index) FILTER (WHERE cn.id IS NOT NULL) AS node_ids
+                array_agg(cn.id ORDER BY dc.chunk_index) FILTER (WHERE cn.id IS NOT NULL) AS node_ids,
+                array_agg(dc.metadata ORDER BY dc.chunk_index) AS chunk_meta
             FROM document_chunks dc
             LEFT JOIN context_nodes cn
                    ON cn.external_id = dc.id::text AND cn.node_type = 'chunk'
@@ -1142,10 +1895,34 @@ async def _update_context_index(doc_id: str, org_id: str, study_id: Optional[str
             if not body.strip():
                 continue
 
-            entity_key = f"section_{section[:40]}_{doc_id[:8]}"
-            summary    = f"[{section}] {body[:500]}"
+            merged_section_meta: dict[str, Any] = {}
+            for meta_item in (row["chunk_meta"] or []):
+                meta = _json_dict(meta_item)
+                for key in ("section_type", "protocol_number"):
+                    if meta.get(key) and not merged_section_meta.get(key):
+                        merged_section_meta[key] = meta.get(key)
+                for key in ("rule_ids", "domains", "form_names", "variable_mentions"):
+                    values = merged_section_meta.setdefault(key, [])
+                    for item in meta.get(key, []) or []:
+                        text = str(item).strip()
+                        if text and text not in values:
+                            values.append(text)
 
-            embeddings = await _embed([body])
+            entity_key = f"section_{section[:40]}_{doc_id[:8]}"
+            prefix = _build_structured_summary_prefix(
+                doc_name,
+                doc_type,
+                effective_meta,
+                section_type=str(merged_section_meta.get("section_type") or ""),
+                rule_ids=merged_section_meta.get("rule_ids", []),
+                domains=merged_section_meta.get("domains", []),
+            )
+            summary = (
+                f"{prefix} | section={section} | form_names={', '.join(merged_section_meta.get('form_names', [])[:6])} "
+                f"| variables={', '.join(merged_section_meta.get('variable_mentions', [])[:10])} | body={body[:500]}"
+            )
+
+            embeddings = await _embed([summary])
             emb_str    = _vec_str(embeddings[0]) if embeddings and embeddings[0] else None
 
             await conn.execute("""
@@ -1179,7 +1956,8 @@ async def _update_context_index(doc_id: str, org_id: str, study_id: Optional[str
 
             for ent_type, labels in by_type.items():
                 entity_key = f"{ent_type}s_from_{doc_id[:8]}"
-                summary    = f"{ent_type.replace('_',' ').title()} entities: " + "; ".join(labels[:20])
+                prefix = _build_structured_summary_prefix(doc_name, doc_type, effective_meta)
+                summary = f"{prefix} | {ent_type.replace('_',' ').title()} entities: " + "; ".join(labels[:20])
 
                 embeddings = await _embed([summary])
                 emb_str    = _vec_str(embeddings[0]) if embeddings and embeddings[0] else None
@@ -1219,6 +1997,15 @@ async def _index_sdtm_entities(conn, doc_id: str, org_id: str, study_id: Optiona
       domain → one entry per SDTM domain node        (entity_type='sdtm_domain')
       var    → one entry per variable cluster          (entity_type='sdtm_variable')
     """
+    doc_row = await conn.fetchrow(
+        "SELECT name, metadata FROM documents WHERE id=$1",
+        doc_id,
+    )
+    doc_name = doc_row["name"] if doc_row else doc_id
+    doc_meta = _json_dict(doc_row["metadata"]) if doc_row else {}
+    classifier_meta = _json_dict(doc_meta.get("classifier_metadata"))
+    effective_meta = {**classifier_meta, **{k: v for k, v in doc_meta.items() if k != "classifier_metadata"}}
+
     # ── Domain nodes — org-scoped (shared across documents) ──────────────────
     domain_nodes = await conn.fetch("""
         SELECT cn.id, cn.label, cn.metadata
@@ -1230,7 +2017,8 @@ async def _index_sdtm_entities(conn, doc_id: str, org_id: str, study_id: Optiona
         meta   = json.loads(dn["metadata"]) if isinstance(dn["metadata"], str) else dict(dn["metadata"] or {})
         domain = meta.get("domain", dn["label"])
         label  = meta.get("label", "")
-        summary = f"SDTM {domain} domain ({label}). Contains all SDTM variables for the {domain} dataset."
+        prefix = _build_structured_summary_prefix(doc_name, "sdtm_ig", effective_meta, domains=[domain])
+        summary = f"{prefix} | SDTM {domain} domain ({label}). Contains all SDTM variables for the {domain} dataset."
         embs    = await _embed([summary])
         emb_str = _vec_str(embs[0]) if embs and embs[0] else None
         await conn.execute("""
@@ -1271,7 +2059,9 @@ async def _index_sdtm_entities(conn, doc_id: str, org_id: str, study_id: Optiona
         for t in tbl_list:
             all_cols.extend(t["cols"])
         unique_cols = list(dict.fromkeys(c for c in all_cols if c))[:20]
+        prefix = _build_structured_summary_prefix(doc_name, "sdtm_ig", effective_meta, domains=[domain])
         summary = (
+            f"{prefix} | "
             f"SDTM variable definition table for {domain} domain. "
             f"Columns: {', '.join(unique_cols)}. "
             f"{len(tbl_list)} table chunk(s)."
@@ -1320,7 +2110,9 @@ async def _index_sdtm_entities(conn, doc_id: str, org_id: str, study_id: Optiona
             LIMIT 1
         """, var_node["id"])
 
+        prefix = _build_structured_summary_prefix(doc_name, "sdtm_ig", effective_meta, domains=[domain])
         summary = (
+            f"{prefix} | "
             f"SDTM variable {var_node['label']} in {domain} domain. "
             f"Status: {core or 'unknown'}. "
             + (f"Codelist: {codelist}. " if codelist else "")
@@ -1366,7 +2158,9 @@ async def _index_sdtm_entities(conn, doc_id: str, org_id: str, study_id: Optiona
         cl_name    = cl_row["cl_name"]
         var_list   = ", ".join((cl_row["vars"] or [])[:20])
         domain_list = ", ".join(d for d in (cl_row["domains"] or []) if d)
+        prefix = _build_structured_summary_prefix(doc_name, "sdtm_ig", effective_meta, domains=[d for d in (cl_row["domains"] or []) if d])
         summary = (
+            f"{prefix} | "
             f"CDISC controlled terminology codelist {cl_name}. "
             f"Used in domains: {domain_list}. "
             f"Referenced by variables: {var_list}."
@@ -2062,6 +2856,7 @@ async def _sync_chunk_nodes(document_id: str, org_id: str, study_id: Optional[st
 class ContextQueryRequest(BaseModel):
     query: str
     org_id: str
+    document_id: Optional[str] = None   # hard-filter to a single document's chunks
     study_id: Optional[str] = None
     top_k: int = Field(default=8, le=20)
     include_lineage: bool = False
@@ -2105,6 +2900,22 @@ async def query_context(req: ContextQueryRequest):
             if req.context_types: params.append(req.context_types)
             params.append(req.top_k * 3)
 
+            # When document_id is provided, restrict context_index to nodes
+            # whose source_node_ids overlap the chunk nodes of that document.
+            doc_node_filter = ""
+            if req.document_id:
+                doc_node_filter = (
+                    f" AND source_node_ids && ("
+                    f"  SELECT ARRAY_AGG(cn.id) FROM context_nodes cn"
+                    f"  JOIN context_edges ce ON ce.target_node_id = cn.id"
+                    f"  WHERE ce.source_node_id = ("
+                    f"    SELECT id FROM context_nodes"
+                    f"    WHERE external_id = '{req.document_id}'"
+                    f"    AND node_type = 'document' LIMIT 1"
+                    f"  ) AND ce.edge_type = 'contains'"
+                    f")"
+                )
+
             # For non-platform orgs, UNION with platform org published context
             if not is_platform:
                 idx_rows = await conn.fetch(f"""
@@ -2112,7 +2923,7 @@ async def query_context(req: ContextQueryRequest):
                            quality_score,
                            1 - (embedding <=> $2::vector) AS score
                     FROM context_index
-                    WHERE org_id=$1 {where_study} {where_type}
+                    WHERE org_id=$1 {where_study} {where_type} {doc_node_filter}
                       AND embedding IS NOT NULL
                     UNION ALL
                     SELECT ci.id, ci.entity_key, ci.entity_type, ci.summary,
@@ -2134,7 +2945,7 @@ async def query_context(req: ContextQueryRequest):
                            quality_score,
                            1 - (embedding <=> $2::vector) AS score
                     FROM context_index
-                    WHERE org_id=$1 {where_study} {where_type}
+                    WHERE org_id=$1 {where_study} {where_type} {doc_node_filter}
                       AND embedding IS NOT NULL
                     ORDER BY embedding <=> $2::vector
                     LIMIT ${len(params)}
@@ -2154,11 +2965,11 @@ async def query_context(req: ContextQueryRequest):
 
             # ── 2. Vector search on chunk embeddings (for exact text retrieval) ──
             chunk_params = [req.org_id, vec_str]
-            if req.study_id: chunk_params.append(req.study_id)
-            study_filter = "AND dc.study_id=$3" if req.study_id else ""
-            chunk_params.append(min(req.top_k, 10))
-
-            if not is_platform:
+            # If document_id provided, filter chunks to that document only (strict isolation)
+            if req.document_id:
+                chunk_params.append(req.document_id)
+                doc_chunk_filter = f"AND dc.document_id = ${len(chunk_params)}::uuid"
+                chunk_params.append(min(req.top_k, 10))
                 chunk_rows = await conn.fetch(f"""
                     SELECT dc.id, dc.content, dc.section, dc.page_number,
                            d.name AS doc_name, d.document_type, d.id AS doc_id,
@@ -2167,39 +2978,101 @@ async def query_context(req: ContextQueryRequest):
                     FROM document_chunks dc
                     JOIN documents d ON d.id = dc.document_id
                     LEFT JOIN context_nodes cn ON cn.external_id = dc.id::text AND cn.node_type='chunk'
-                    WHERE dc.org_id=$1 {study_filter}
+                    WHERE dc.org_id=$1 {doc_chunk_filter}
                       AND dc.embedding IS NOT NULL
-                    UNION ALL
-                    SELECT dc.id, dc.content, dc.section, dc.page_number,
-                           d.name AS doc_name, d.document_type, d.id AS doc_id,
-                           cn.id AS node_id,
-                           1 - (dc.embedding <=> $2::vector) AS score
-                    FROM document_chunks dc
-                    JOIN documents d ON d.id = dc.document_id
-                    LEFT JOIN context_nodes cn ON cn.external_id = dc.id::text AND cn.node_type='chunk'
-                    WHERE dc.org_id = '{settings.platform_org_id}'
-                      AND dc.embedding IS NOT NULL
-                      AND d.id IN (
-                          SELECT unnest(document_ids)
-                          FROM standard_context_graphs WHERE is_published=TRUE
-                      )
                     ORDER BY score DESC
                     LIMIT ${len(chunk_params)}
                 """, *chunk_params)
+            elif req.study_id:
+                chunk_params.append(req.study_id)
+                study_filter = "AND dc.study_id=$3"
+                chunk_params.append(min(req.top_k, 10))
+                if not is_platform:
+                    chunk_rows = await conn.fetch(f"""
+                        SELECT dc.id, dc.content, dc.section, dc.page_number,
+                               d.name AS doc_name, d.document_type, d.id AS doc_id,
+                               cn.id AS node_id,
+                               1 - (dc.embedding <=> $2::vector) AS score
+                        FROM document_chunks dc
+                        JOIN documents d ON d.id = dc.document_id
+                        LEFT JOIN context_nodes cn ON cn.external_id = dc.id::text AND cn.node_type='chunk'
+                        WHERE dc.org_id=$1 {study_filter}
+                          AND dc.embedding IS NOT NULL
+                        UNION ALL
+                        SELECT dc.id, dc.content, dc.section, dc.page_number,
+                               d.name AS doc_name, d.document_type, d.id AS doc_id,
+                               cn.id AS node_id,
+                               1 - (dc.embedding <=> $2::vector) AS score
+                        FROM document_chunks dc
+                        JOIN documents d ON d.id = dc.document_id
+                        LEFT JOIN context_nodes cn ON cn.external_id = dc.id::text AND cn.node_type='chunk'
+                        WHERE dc.org_id = '{settings.platform_org_id}'
+                          AND dc.embedding IS NOT NULL
+                          AND d.id IN (
+                              SELECT unnest(document_ids)
+                              FROM standard_context_graphs WHERE is_published=TRUE
+                          )
+                        ORDER BY score DESC
+                        LIMIT ${len(chunk_params)}
+                    """, *chunk_params)
+                else:
+                    chunk_rows = await conn.fetch(f"""
+                        SELECT dc.id, dc.content, dc.section, dc.page_number,
+                               d.name AS doc_name, d.document_type, d.id AS doc_id,
+                               cn.id AS node_id,
+                               1 - (dc.embedding <=> $2::vector) AS score
+                        FROM document_chunks dc
+                        JOIN documents d ON d.id = dc.document_id
+                        LEFT JOIN context_nodes cn ON cn.external_id = dc.id::text AND cn.node_type='chunk'
+                        WHERE dc.org_id=$1 {study_filter}
+                          AND dc.embedding IS NOT NULL
+                        ORDER BY dc.embedding <=> $2::vector
+                        LIMIT ${len(chunk_params)}
+                    """, *chunk_params)
             else:
-                chunk_rows = await conn.fetch(f"""
-                    SELECT dc.id, dc.content, dc.section, dc.page_number,
-                           d.name AS doc_name, d.document_type, d.id AS doc_id,
-                           cn.id AS node_id,
-                           1 - (dc.embedding <=> $2::vector) AS score
-                    FROM document_chunks dc
-                    JOIN documents d ON d.id = dc.document_id
-                    LEFT JOIN context_nodes cn ON cn.external_id = dc.id::text AND cn.node_type='chunk'
-                    WHERE dc.org_id=$1 {study_filter}
-                      AND dc.embedding IS NOT NULL
-                    ORDER BY dc.embedding <=> $2::vector
-                    LIMIT ${len(chunk_params)}
-                """, *chunk_params)
+                chunk_params.append(min(req.top_k, 10))
+                if not is_platform:
+                    chunk_rows = await conn.fetch(f"""
+                        SELECT dc.id, dc.content, dc.section, dc.page_number,
+                               d.name AS doc_name, d.document_type, d.id AS doc_id,
+                               cn.id AS node_id,
+                               1 - (dc.embedding <=> $2::vector) AS score
+                        FROM document_chunks dc
+                        JOIN documents d ON d.id = dc.document_id
+                        LEFT JOIN context_nodes cn ON cn.external_id = dc.id::text AND cn.node_type='chunk'
+                        WHERE dc.org_id=$1
+                          AND dc.embedding IS NOT NULL
+                        UNION ALL
+                        SELECT dc.id, dc.content, dc.section, dc.page_number,
+                               d.name AS doc_name, d.document_type, d.id AS doc_id,
+                               cn.id AS node_id,
+                               1 - (dc.embedding <=> $2::vector) AS score
+                        FROM document_chunks dc
+                        JOIN documents d ON d.id = dc.document_id
+                        LEFT JOIN context_nodes cn ON cn.external_id = dc.id::text AND cn.node_type='chunk'
+                        WHERE dc.org_id = '{settings.platform_org_id}'
+                          AND dc.embedding IS NOT NULL
+                          AND d.id IN (
+                              SELECT unnest(document_ids)
+                              FROM standard_context_graphs WHERE is_published=TRUE
+                          )
+                        ORDER BY score DESC
+                        LIMIT ${len(chunk_params)}
+                    """, *chunk_params)
+                else:
+                    chunk_rows = await conn.fetch(f"""
+                        SELECT dc.id, dc.content, dc.section, dc.page_number,
+                               d.name AS doc_name, d.document_type, d.id AS doc_id,
+                               cn.id AS node_id,
+                               1 - (dc.embedding <=> $2::vector) AS score
+                        FROM document_chunks dc
+                        JOIN documents d ON d.id = dc.document_id
+                        LEFT JOIN context_nodes cn ON cn.external_id = dc.id::text AND cn.node_type='chunk'
+                        WHERE dc.org_id=$1
+                          AND dc.embedding IS NOT NULL
+                        ORDER BY dc.embedding <=> $2::vector
+                        LIMIT ${len(chunk_params)}
+                    """, *chunk_params)
 
             for row in chunk_rows:
                 score = float(row["score"])
@@ -3998,6 +4871,67 @@ async def _process_feedback(fb_id: str, req: FeedbackRequest):
 
         await conn.execute("UPDATE context_feedback SET processed=TRUE WHERE id=$1", fb_id)
 
+        # Write a decision_traces record so the mistake surfaces in learning/audit traces.
+        # This is what populates mistake_type in the traces UI.
+        if signal_type == "correction" and req.agent_run_id:
+            _fb_category = (req.feedback_value or {}).get("feedback_category", "wrong_answer")
+            _corrected_text = (
+                (req.feedback_value or {}).get("correction_payload", {}).get("corrected_answer")
+                or (req.feedback_value or {}).get("corrected_text", "")
+                or (req.feedback_value or {}).get("reason", "")
+            )
+            _mistake_trace_id = str(uuid.uuid4())
+            # study_id is not a field on FeedbackRequest — look it up from agent_runs
+            _study_id_row = await conn.fetchrow(
+                "SELECT study_id FROM agent_runs WHERE id=$1", req.agent_run_id
+            )
+            _mistake_study_id = str(_study_id_row["study_id"]) if _study_id_row and _study_id_row["study_id"] else None
+            await conn.execute("""
+                INSERT INTO decision_traces
+                    (id, agent_run_id, org_id, study_id, trace_type,
+                     input_context, reasoning_steps, sources_cited, output, confidence,
+                     mistake_type)
+                VALUES ($1,$2,$3,$4,$5,$6::jsonb,$7::jsonb,$8::jsonb,$9::jsonb,$10,$11)
+            """,
+                _mistake_trace_id,
+                req.agent_run_id,
+                req.org_id,
+                _mistake_study_id,
+                "output",
+                json.dumps({
+                    "source": "user_feedback",
+                    "feedback_id": fb_id,
+                    "feedback_type": req.feedback_type,
+                    "raw_user_query": (req.feedback_value or {}).get("original_query", ""),
+                    "trigger_type": "user_feedback",
+                }),
+                json.dumps([
+                    {"step": 1, "action": "feedback_received",
+                     "thought": f"User submitted '{req.feedback_type}' feedback on run {req.agent_run_id[:8]}"},
+                    {"step": 2, "action": "mistake_identified",
+                     "thought": f"Mistake category: '{_fb_category}'. Correction: {_corrected_text[:300]}"},
+                    {"step": 3, "action": "correction_stored",
+                     "thought": "Correction persisted to context graph with 'corrects' edge for future retrieval"},
+                ]),
+                json.dumps([]),
+                json.dumps({
+                    "corrected_text": _corrected_text,
+                    "feedback_category": _fb_category,
+                    "feedback_id": fb_id,
+                    "source_run_id": req.agent_run_id,
+                    "feedback_validation": {
+                        "feedback_type": req.feedback_type,
+                        "feedback_category": _fb_category,
+                        "corrected_answer": _corrected_text,
+                        "linked_feedback_id": fb_id,
+                    },
+                }),
+                0.95,
+                _fb_category,
+            )
+            log.info("feedback.mistake_trace_written", fb_id=fb_id,
+                     trace_id=_mistake_trace_id, mistake_type=_fb_category)
+
     # Bust bias cache so next retrieval picks up the new correction signal
     study_id_for_cache = getattr(req, "study_id", None)
     await _redis_delete(f"ctx_bias:{req.org_id}:{study_id_for_cache or 'null'}")
@@ -4325,6 +5259,12 @@ async def get_dataset_stats(req: DatasetStatsRequest):
 
 # ─── Domain Aggregation (top N variable values, SQL-based) ────────────────────
 
+# USUBJID appears in XPT row chunks as "USUBJID=<value>  " (double-space terminated).
+# Standard CDISC format is NN-NNN-NNNN, but generated/real datasets may use any
+# alphanumeric+dash identifier (e.g. STUDY-001-001-0001 or ABC-01-0001).
+# This flexible pattern matches both styles.
+_USUBJID_PATTERN = r"USUBJID=([A-Z][A-Z0-9\-]{2,39})"
+
 class DomainAggregationRequest(BaseModel):
     org_id: str
     study_id: Optional[str] = None
@@ -4347,7 +5287,7 @@ async def _aggregate_filtered(conn, domain: str, variable: str, filter_field: st
     if variable in _YN_VARIABLES:
         val_pattern = f"{variable}=([YN])"
     elif variable == "USUBJID":
-        val_pattern = r"USUBJID=([0-9]{2}-[0-9]{3}-[0-9]{4})"
+        val_pattern = _USUBJID_PATTERN
     else:
         val_pattern = f"{variable}=([A-Z0-9][A-Z0-9 /,()\\-]+?)  "
     rows = await conn.fetch(
@@ -4367,7 +5307,7 @@ async def _aggregate_filtered(conn, domain: str, variable: str, filter_field: st
         LIMIT $6
         """,
         val_pattern, org_id, study_id,
-        f"{domain} rows%", f"%{filter_field}={filter_value}%", top_n,
+        f"{domain} rows%" if domain else "rows%", f"%{filter_field}={filter_value}%", top_n,
     )
     results = [{"value": r["value"], "count": int(r["frequency"])} for r in rows if r["value"]]
     if not results:
@@ -4397,6 +5337,36 @@ async def _aggregate_filtered(conn, domain: str, variable: str, filter_field: st
             a_line,
             "Full ranked list:",
         ]
+    elif key == ("AETERM", "AEOUT", "FATAL"):
+        # AEOUT=FATAL: the adverse event outcome was FATAL (used when AESDTH is not present in the dataset)
+        # Multiple subjects can share the same AETERM, so the count = number of fatal AE records for that term.
+        names = [r["value"] for r in results]
+        counts = {r["value"]: r["count"] for r in results}
+        total_fatal = sum(r["count"] for r in results)
+        if len(names) == 1:
+            summary = f"A: 1 adverse event term had fatal outcome — {names[0]} ({total_fatal} fatal record(s))"
+        else:
+            summary = f"A: {len(names)} adverse event term(s) had fatal outcome (AEOUT=FATAL) — {total_fatal} fatal records total"
+        lines = [
+            "Q: Which adverse events led to death (AEOUT=FATAL)? / fatal adverse events / fatal outcome",
+            summary,
+            "Ranked by number of fatal records:",
+        ]
+        for i, r in enumerate(results, 1):
+            lines.append(f"  {i}. {r['value']} — {r['count']} fatal record(s)")
+        return "\n".join(lines)
+    elif key == ("USUBJID", "DTHFL", "Y"):
+        # Death flag is a per-subject binary — counting occurrences is clinically meaningless.
+        # A subject cannot die more than once; report as a plain subject list with a total count.
+        subject_ids = [r["value"] for r in results]
+        lines = [
+            f"Q: How many subjects died? Which subjects have DTHFL=Y?",
+            f"A: {len(subject_ids)} subject(s) died (DTHFL=Y).",
+            f"Deceased subjects (USUBJID):",
+        ]
+        for subj in subject_ids:
+            lines.append(f"  - {subj}")
+        return "\n".join(lines)
     elif key in _qa_templates:
         q_line, a_line = _qa_templates[key]
         top = results[0]
@@ -4405,16 +5375,25 @@ async def _aggregate_filtered(conn, domain: str, variable: str, filter_field: st
             a_line.format(top_value=top["value"], top_count=top["count"]),
             f"Full ranked list:",
         ]
+        for i, r in enumerate(results, 1):
+            lines.append(f"  {i}. {r['value']} — {r['count']} occurrence(s)")
     else:
-        lines = [f"Top {variable} values where {filter_field}={filter_value}:"]
-    for i, r in enumerate(results, 1):
-        lines.append(f"  {i}. {r['value']} — {r['count']} occurrence(s)")
+        # Generic binary-flag variables: avoid "occurrence(s)" language for Y/N fields
+        _binary_flag_fields = {"DTHFL", "AESER", "AESDTH", "AESLIFE", "AESHOSP", "AECONTRT", "AERENAL"}
+        if filter_field in _binary_flag_fields:
+            lines = [f"{len(results)} record(s) where {filter_field}={filter_value} ({variable} list):"]
+            for r in results:
+                lines.append(f"  - {r['value']}")
+        else:
+            lines = [f"Top {variable} values where {filter_field}={filter_value}:"]
+            for i, r in enumerate(results, 1):
+                lines.append(f"  {i}. {r['value']} — {r['count']} occurrence(s)")
     return "\n".join(lines)
 
 async def _aggregate_one_variable(conn, domain: str, variable: str, org_id: str, study_id: Optional[str], top_n: int) -> str:
     """Run aggregation for a single variable and return a human-readable block."""
     if variable == "USUBJID":
-        pattern = r"USUBJID=([0-9]{2}-[0-9]{3}-[0-9]{4})"
+        pattern = _USUBJID_PATTERN
     elif variable in _YN_VARIABLES:
         # Y/N flag fields — single character value followed by space or end-of-field
         pattern = f"{variable}=([YN])"
@@ -4435,7 +5414,7 @@ async def _aggregate_one_variable(conn, domain: str, variable: str, org_id: str,
         LIMIT $5
         """,
         pattern, org_id, study_id,
-        f"{domain} rows%", top_n,
+        f"{domain} rows%" if domain else "rows%", top_n,
     )
     results = [{"value": r["value"], "count": int(r["frequency"])} for r in rows]
     if not results:
@@ -4447,6 +5426,7 @@ async def _aggregate_one_variable(conn, domain: str, variable: str, org_id: str,
         "AESER":  ("was a serious AE",          "were SERIOUS",           "were NOT serious"),
         "AESLIFE": ("was life-threatening",     "were LIFE-THREATENING",  "were NOT life-threatening"),
         "AESHOSP": ("required hospitalisation", "required HOSPITALISATION","did NOT require hospitalisation"),
+        "DTHFL":  ("subject died",              "subjects died (DTHFL=Y)", "subjects did NOT die (DTHFL=N)"),
     }
     if variable in _yn_meanings:
         desc, yes_label, no_label = _yn_meanings[variable]
@@ -4561,9 +5541,9 @@ async def domain_record_lookup(req: DomainRecordLookupRequest):
             LIMIT $6
             """,
             date_pattern,
-            r"USUBJID=([0-9]{2}-[0-9]{3}-[0-9]{4})",
+            _USUBJID_PATTERN,
             req.org_id, req.study_id,
-            f"{domain} rows%", req.limit,
+            f"{domain} rows%" if domain else "rows%", req.limit,
         )
 
     def _extract(content: str, field: str) -> str:
@@ -4615,8 +5595,9 @@ async def domain_subjects_diff(req: DomainSubjectsDiffRequest):
 
     primary = req.primary_domain.upper()
     exclude = req.exclude_domain.upper()
-    # USUBJID pattern: NN-NNN-NNNN (standard CDISC format)
-    usubjid_re = r"USUBJID=([0-9]{2}-[0-9]{3}-[0-9]{4})"
+    # USUBJID: flexible pattern supports both standard NN-NNN-NNNN and
+    # generated formats like STUDY-001-001-0001
+    usubjid_re = _USUBJID_PATTERN
 
     async def _fetch_subjects(domain: str) -> set:
         import re as _re
@@ -4631,7 +5612,7 @@ async def domain_subjects_diff(req: DomainSubjectsDiffRequest):
                   AND dc.section LIKE $3
                   AND dc.content ~ $4
                 """,
-                req.org_id, req.study_id, f"{domain} rows%", usubjid_re,
+                req.org_id, req.study_id, f"{domain} rows%" if domain else "rows%", usubjid_re,
             )
         subjects: set = set()
         for r in rows:
@@ -4820,19 +5801,37 @@ async def classify_document(req: ClassifyDocumentRequest, background_tasks: Back
 
     detected_type = result.get("detected_type", "unknown")
     confidence    = float(result.get("confidence", 0.0))
+    extracted_meta = _clean_classifier_metadata({
+        **(result.get("metadata_extracted", {}) or {}),
+        "key_phrases": result.get("key_phrases", []),
+        "structure_description": result.get("structure_description", ""),
+    })
+    classifier_meta = {
+        "classifier_metadata": extracted_meta,
+        "classification": {
+            "detected_type": detected_type,
+            "confidence": confidence,
+            "status": "classified" if confidence >= settings.min_type_confidence and detected_type != "unknown" else "pending_classification",
+            "reasoning": result.get("reasoning", ""),
+        },
+    }
 
     if confidence >= settings.min_type_confidence and detected_type != "unknown":
         # High confidence — update document directly
         async with db_pool.acquire() as conn:
+            existing_meta = _json_dict(await conn.fetchval(
+                "SELECT metadata FROM documents WHERE id=$1", req.document_id
+            ))
+            merged_meta = {**existing_meta, **classifier_meta}
             await conn.execute(
-                "UPDATE documents SET document_type=$1 WHERE id=$2",
-                detected_type, req.document_id
+                "UPDATE documents SET document_type=$1, metadata=$2::jsonb WHERE id=$3",
+                detected_type, json.dumps(merged_meta), req.document_id
             )
         return {
             "status": "classified",
             "document_type": detected_type,
             "confidence": confidence,
-            "metadata": result.get("metadata_extracted", {}),
+            "metadata": extracted_meta,
         }
 
     # Low confidence → create pending classification for user review
@@ -4842,6 +5841,14 @@ async def classify_document(req: ClassifyDocumentRequest, background_tasks: Back
         conf_scores[alt["type"]] = alt.get("confidence", 0.0)
 
     async with db_pool.acquire() as conn:
+        existing_meta = _json_dict(await conn.fetchval(
+            "SELECT metadata FROM documents WHERE id=$1", req.document_id
+        ))
+        merged_meta = {**existing_meta, **classifier_meta}
+        await conn.execute(
+            "UPDATE documents SET metadata=$1::jsonb WHERE id=$2",
+            json.dumps(merged_meta), req.document_id
+        )
         await conn.execute("""
             INSERT INTO pending_classifications
                 (document_id, org_id, auto_detected_hints, llm_analysis,
@@ -4859,7 +5866,7 @@ async def classify_document(req: ClassifyDocumentRequest, background_tasks: Back
                         "structure": result.get("structure_description", "")}),
             result.get("reasoning", "") + "\n\nAnalysis: " + result.get("structure_description", ""),
             suggested[:5], json.dumps(conf_scores),
-            json.dumps(result.get("metadata_extracted", {}))
+            json.dumps(extracted_meta)
         )
 
     return {
@@ -4868,7 +5875,7 @@ async def classify_document(req: ClassifyDocumentRequest, background_tasks: Back
         "suggested_types": suggested[:5],
         "confidence_scores": conf_scores,
         "llm_analysis": result.get("reasoning", ""),
-        "metadata_extracted": result.get("metadata_extracted", {}),
+        "metadata_extracted": extracted_meta,
     }
 
 
@@ -5313,7 +6320,12 @@ async def delete_document_graph(document_id: str, org_id: str = Query(...)):
             WHERE source_node_id = ANY($1::uuid[]) OR target_node_id = ANY($1::uuid[])
         """, all_node_ids)
 
-        # Delete the nodes themselves
+        # Delete the nodes themselves (nullify entity_canonical_map FK refs first)
+        await conn.execute("""
+            UPDATE entity_canonical_map SET concept_node_id = NULL
+            WHERE concept_node_id = ANY($1::uuid[])
+        """, all_node_ids)
+
         await conn.execute("""
             DELETE FROM context_nodes WHERE id = ANY($1::uuid[])
         """, all_node_ids)
@@ -5399,12 +6411,16 @@ async def get_document_intelligence(document_id: str, org_id: str = Query(...)):
             ORDER BY chunk_index LIMIT 200
         """, uuid.UUID(document_id))
 
-        # Image chunks
+                # Figure/image chunks. Some extracted figures have caption text but no stored image_url.
         image_chunks = await conn.fetch("""
             SELECT chunk_index, page_number, section, content,
                    metadata->>'image_url' AS image_url
             FROM document_chunks
-            WHERE document_id=$1 AND metadata->>'image_url' IS NOT NULL
+                        WHERE document_id=$1
+                            AND (
+                                metadata->>'content_type' = 'figure'
+                                OR metadata->>'image_url' IS NOT NULL
+                            )
             ORDER BY chunk_index
         """, uuid.UUID(document_id))
 
@@ -5483,6 +6499,39 @@ async def get_document_intelligence(document_id: str, org_id: str = Query(...)):
             FROM processing_logs WHERE document_id=$1 ORDER BY created_at ASC
         """, uuid.UUID(document_id))
 
+        # Fetch extracted domain files (SDTM/ADaM datasets)
+        extracted_files_rows = await conn.fetch("""
+            SELECT id, name, file_name, document_type, file_size_bytes,
+                   created_at, metadata
+            FROM documents
+            WHERE org_id=$1 
+              AND document_type IN ('sdtm_dataset', 'adam_dataset')
+              AND status='indexed'
+            ORDER BY created_at DESC
+        """, uuid.UUID(org_id))
+
+    # Build extracted files list
+    extracted_files = []
+    for df in extracted_files_rows:
+        meta = {}
+        if df["metadata"]:
+            try:
+                meta = json.loads(df["metadata"]) if isinstance(df["metadata"], str) else dict(df["metadata"] or {})
+            except Exception:
+                pass
+        extracted_files.append({
+            "document_id": str(df["id"]),
+            "file_name": df["file_name"],
+            "name": df["name"],
+            "document_type": df["document_type"],
+            "file_size_bytes": df["file_size_bytes"],
+            "created_at": df["created_at"].isoformat() if df["created_at"] else None,
+            "domain": meta.get("domain"),
+            "row_count": meta.get("row_count"),
+            "unique_subjects": meta.get("unique_subjects"),
+            "unique_sites": meta.get("unique_sites"),
+        })
+
     # Build classification section
     def _parse_json(val):
         if val is None:
@@ -5531,7 +6580,7 @@ async def get_document_intelligence(document_id: str, org_id: str = Query(...)):
             "row_count": int(t["row_count"] or 0),
         })
 
-    # Build images list — rewrite internal MinIO URL for browser access
+    # Build images list — rewrite internal MinIO URL for browser access when present
     images_list = []
     for img in image_chunks:
         url = img["image_url"] or ""
@@ -5585,6 +6634,7 @@ async def get_document_intelligence(document_id: str, org_id: str = Query(...)):
         },
         "tables":  tables_list,
         "images":  images_list,
+        "extracted_files": extracted_files,
         "graph_summary": {
             "entity_breakdown":  entity_breakdown,
             "edge_breakdown":    edge_breakdown,
@@ -5707,6 +6757,1202 @@ async def delete_standard_graph(graph_id: str):
     async with db_pool.acquire() as conn:
         await conn.execute(
             "DELETE FROM standard_context_graphs WHERE id=$1", uuid.UUID(graph_id))
+
+
+# ─── Standards Sync ───────────────────────────────────────────────────────────
+
+# Maps req_code prefix → standard external_id suffix (standard_code:version)
+_REQ_TO_STANDARD: list[tuple[str, str]] = [
+    ("ICH-M11",          "ICH-M11-2024:2"),
+    ("ICH-E6R3",         "ICH-E6R3:R3"),
+    ("ICH-E9",           "ICH-E9:1"),
+    ("FDA-Guidance-SDTM","SDTM-IG-3.4:3.4"),
+    ("FDA-21CFR-312",    "SDTM-IG-3.4:3.4"),
+    ("FDA-21CFR-314",    "SDTM-IG-3.4:3.4"),
+    ("FDA-21CFR",        "SDTM-IG-3.4:3.4"),
+    ("EMA-DMPG",         "SDTM-IG-3.4:3.4"),
+]
+
+
+@app.post("/graph/standards/sync")
+async def sync_standards_to_graph(body: dict = {}):
+    """
+    Pull standards, regulatory requirements, and terminology codelists from
+    standards-registry and upsert them as context graph nodes.
+    Also creates governs edges: CDISC-CT → codelists, standard → requirements.
+    """
+    standards_url = os.environ.get("STANDARDS_REGISTRY_URL", "http://localhost:8012")
+    org_id = body.get("org_id", settings.platform_org_id)
+    nodes_created = 0
+    edges_created = 0
+
+    async with db_pool.acquire() as conn:
+        # ── Phase 1: standards catalogue ──────────────────────────────────────
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(f"{standards_url}/standards")
+            if resp.status_code == 200:
+                for std in resp.json().get("standards", []):
+                    code    = std.get("standard_code", "")
+                    version = std.get("version", "")
+                    ext_id  = f"standard:{code}:{version}"
+                    label   = std.get("standard_name") or f"{code} v{version}"
+                    meta    = json.dumps({
+                        "standard_code": code,
+                        "version":       version,
+                        "publisher":     std.get("publisher", ""),
+                        "standard_type": std.get("standard_type", ""),
+                    })
+                    existing = await conn.fetchrow(
+                        "SELECT id FROM context_nodes WHERE external_id=$1 AND org_id=$2",
+                        ext_id, uuid.UUID(org_id),
+                    )
+                    if not existing:
+                        await conn.execute(
+                            """INSERT INTO context_nodes
+                               (id, node_type, external_id, org_id, study_id, label, metadata)
+                               VALUES ($1, 'standard', $2, $3, NULL, $4, $5)
+                               ON CONFLICT DO NOTHING""",
+                            uuid.uuid4(), ext_id, uuid.UUID(org_id), label, meta,
+                        )
+                        nodes_created += 1
+                    else:
+                        # Update label/metadata on re-sync
+                        await conn.execute(
+                            "UPDATE context_nodes SET label=$1, metadata=$2 WHERE external_id=$3 AND org_id=$4",
+                            label, meta, ext_id, uuid.UUID(org_id),
+                        )
+        except Exception as e:
+            log.warning("standards_sync.catalogue_failed", error=str(e))
+
+        # ── Phase 2: regulatory requirements ──────────────────────────────────
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(f"{standards_url}/regulatory/requirements")
+            if resp.status_code == 200:
+                for req in resp.json().get("requirements", []):
+                    req_code = req.get("req_code") or req.get("id", "")
+                    ext_id   = f"regulatory:{req_code}"
+                    label    = req_code  # e.g. "ICH-M11-1.1"
+                    meta     = json.dumps({
+                        "authority":  req.get("authority", ""),
+                        "category":   req.get("category", ""),
+                        "applies_to": req.get("applies_to", []),
+                        "req_text":   (req.get("requirement_text") or "")[:200],
+                    })
+                    existing = await conn.fetchrow(
+                        "SELECT id FROM context_nodes WHERE external_id=$1 AND org_id=$2",
+                        ext_id, uuid.UUID(org_id),
+                    )
+                    if not existing:
+                        await conn.execute(
+                            """INSERT INTO context_nodes
+                               (id, node_type, external_id, org_id, study_id, label, metadata)
+                               VALUES ($1, 'regulatory_req', $2, $3, NULL, $4, $5)
+                               ON CONFLICT DO NOTHING""",
+                            uuid.uuid4(), ext_id, uuid.UUID(org_id), label, meta,
+                        )
+                        nodes_created += 1
+                    else:
+                        await conn.execute(
+                            "UPDATE context_nodes SET label=$1, metadata=$2 WHERE external_id=$3 AND org_id=$4",
+                            label, meta, ext_id, uuid.UUID(org_id),
+                        )
+        except Exception as e:
+            log.warning("standards_sync.regulatory_failed", error=str(e))
+
+        # ── Phase 3: CT codelists ──────────────────────────────────────────────
+        try:
+            async with httpx.AsyncClient(timeout=15) as client:
+                resp = await client.get(f"{standards_url}/terminology/codelists", params={"limit": 200})
+            if resp.status_code == 200:
+                for cl in resp.json().get("codelists", []):
+                    code   = cl.get("codelist_code", "")
+                    ext_id = f"codelist:{code}"
+                    label  = cl.get("codelist_name") or code
+                    meta   = json.dumps({
+                        "codelist_code": code,
+                        "is_extensible": cl.get("is_extensible", False),
+                        "version":       cl.get("version", ""),
+                    })
+                    existing = await conn.fetchrow(
+                        "SELECT id FROM context_nodes WHERE external_id=$1 AND org_id=$2",
+                        ext_id, uuid.UUID(org_id),
+                    )
+                    if not existing:
+                        await conn.execute(
+                            """INSERT INTO context_nodes
+                               (id, node_type, external_id, org_id, study_id, label, metadata)
+                               VALUES ($1, 'codelist', $2, $3, NULL, $4, $5)
+                               ON CONFLICT DO NOTHING""",
+                            uuid.uuid4(), ext_id, uuid.UUID(org_id), label, meta,
+                        )
+                        nodes_created += 1
+                    else:
+                        await conn.execute(
+                            "UPDATE context_nodes SET label=$1, metadata=$2 WHERE external_id=$3 AND org_id=$4",
+                            label, meta, ext_id, uuid.UUID(org_id),
+                        )
+        except Exception as e:
+            log.warning("standards_sync.terminology_failed", error=str(e))
+
+        # ── Phase 4: create edges ──────────────────────────────────────────────
+        try:
+            ct_std_node = await conn.fetchrow(
+                "SELECT id FROM context_nodes WHERE external_id=$1 AND org_id=$2",
+                "standard:CDISC-CT-2024:2024-09-27", uuid.UUID(org_id),
+            )
+            if ct_std_node:
+                codelist_nodes = await conn.fetch(
+                    "SELECT id FROM context_nodes WHERE node_type='codelist' AND org_id=$1",
+                    uuid.UUID(org_id),
+                )
+                for cl_node in codelist_nodes:
+                    try:
+                        await conn.execute(
+                            """INSERT INTO context_edges
+                               (id, source_node_id, target_node_id, edge_type, weight, metadata)
+                               VALUES ($1, $2, $3, 'governs', 1.0, '{}')
+                               ON CONFLICT DO NOTHING""",
+                            uuid.uuid4(), ct_std_node["id"], cl_node["id"],
+                        )
+                        edges_created += 1
+                    except Exception:
+                        pass
+
+            # Regulatory req → standard edges based on code prefix
+            req_nodes = await conn.fetch(
+                "SELECT id, external_id FROM context_nodes WHERE node_type='regulatory_req' AND org_id=$1",
+                uuid.UUID(org_id),
+            )
+            for req_node in req_nodes:
+                req_ext = req_node["external_id"] or ""
+                req_code_part = req_ext.replace("regulatory:", "")
+                for prefix, std_suffix in _REQ_TO_STANDARD:
+                    if req_code_part.startswith(prefix):
+                        std_ext = f"standard:{std_suffix}"
+                        std_node = await conn.fetchrow(
+                            "SELECT id FROM context_nodes WHERE external_id=$1 AND org_id=$2",
+                            std_ext, uuid.UUID(org_id),
+                        )
+                        if std_node:
+                            try:
+                                await conn.execute(
+                                    """INSERT INTO context_edges
+                                       (id, source_node_id, target_node_id, edge_type, weight, metadata)
+                                       VALUES ($1, $2, $3, 'governs', 1.0, '{}')
+                                       ON CONFLICT DO NOTHING""",
+                                    uuid.uuid4(), std_node["id"], req_node["id"],
+                                )
+                                edges_created += 1
+                            except Exception:
+                                pass
+                        break
+
+            # SDTM standards → SDTM domains (foundational bootstrap links)
+            # NOTE: USDM standards are intentionally excluded here — they govern
+            # USDM study-design concepts (see USDM concept bootstrap below).
+            domain_nodes = await conn.fetch(
+                "SELECT id FROM context_nodes WHERE node_type='sdtm_domain' AND org_id=$1",
+                uuid.UUID(org_id),
+            )
+            if domain_nodes:
+                standards = await conn.fetch(
+                    """SELECT id, external_id, metadata->>'standard_type' AS standard_type
+                       FROM context_nodes
+                       WHERE node_type='standard' AND org_id=$1""",
+                    uuid.UUID(org_id),
+                )
+                for std in standards:
+                    ext_id = std["external_id"] or ""
+                    # Only SDTM standards govern SDTM domains — not USDM standards
+                    is_sdtm = ":SDTM-" in ext_id
+                    if not is_sdtm:
+                        continue
+                    for domain_node in domain_nodes:
+                        try:
+                            await conn.execute(
+                                """INSERT INTO context_edges
+                                   (id, source_node_id, target_node_id, edge_type, weight, metadata)
+                                   VALUES ($1, $2, $3, 'governs', 1.0, '{}')
+                                   ON CONFLICT DO NOTHING""",
+                                uuid.uuid4(), std["id"], domain_node["id"],
+                            )
+                            edges_created += 1
+                        except Exception:
+                            pass
+
+            # CDASH implementation guide → SDTM domains (forms map into SDTM collection)
+            cdash_nodes = await conn.fetch(
+                """SELECT id FROM context_nodes
+                   WHERE node_type='standard' AND org_id=$1
+                     AND external_id LIKE 'standard:CDASH-IG-%'""",
+                uuid.UUID(org_id),
+            )
+            if cdash_nodes and domain_nodes:
+                for cdash_node in cdash_nodes:
+                    for domain_node in domain_nodes:
+                        try:
+                            await conn.execute(
+                                """INSERT INTO context_edges
+                                   (id, source_node_id, target_node_id, edge_type, weight, metadata)
+                                   VALUES ($1, $2, $3, 'governs', 1.0, '{}')
+                                   ON CONFLICT DO NOTHING""",
+                                uuid.uuid4(), cdash_node["id"], domain_node["id"],
+                            )
+                            edges_created += 1
+                        except Exception:
+                            pass
+
+            # ICH standards → matching regulatory requirements by req code prefix
+            ich_standards = await conn.fetch(
+                """SELECT id, external_id FROM context_nodes
+                   WHERE node_type='standard' AND org_id=$1
+                     AND external_id LIKE 'standard:ICH-%'""",
+                uuid.UUID(org_id),
+            )
+            if ich_standards:
+                req_nodes_all = await conn.fetch(
+                    "SELECT id, external_id FROM context_nodes WHERE node_type='regulatory_req' AND org_id=$1",
+                    uuid.UUID(org_id),
+                )
+                for std in ich_standards:
+                    std_ext = std["external_id"] or ""
+                    std_code = std_ext.split(":")[1] if ":" in std_ext else ""
+                    std_prefix = std_code.rsplit("-", 1)[0] if "-" in std_code else std_code
+                    if not std_prefix:
+                        continue
+                    for req_node in req_nodes_all:
+                        req_ext = req_node["external_id"] or ""
+                        req_code = req_ext.replace("regulatory:", "")
+                        if req_code.startswith(std_prefix):
+                            try:
+                                await conn.execute(
+                                    """INSERT INTO context_edges
+                                       (id, source_node_id, target_node_id, edge_type, weight, metadata)
+                                       VALUES ($1, $2, $3, 'governs', 1.0, '{}')
+                                       ON CONFLICT DO NOTHING""",
+                                    uuid.uuid4(), std["id"], req_node["id"],
+                                )
+                                edges_created += 1
+                            except Exception:
+                                pass
+            # USDM standards → USDM study-design concept nodes
+            # These represent the key study design model elements defined in the
+            # USDM Implementation Guide — not SDTM domains.
+            _USDM_CONCEPTS = [
+                ("usdm:Study",               "Study"),
+                ("usdm:StudyProtocol",       "Study Protocol"),
+                ("usdm:StudyDesign",         "Study Design"),
+                ("usdm:StudyAmendment",      "Study Amendment"),
+                ("usdm:TreatmentArm",        "Treatment Arm"),
+                ("usdm:StudyEpoch",          "Study Epoch"),
+                ("usdm:StudyActivity",       "Study Activity"),
+                ("usdm:PopulationGroup",     "Population Group"),
+                ("usdm:StudyObjective",      "Study Objective"),
+                ("usdm:Estimand",            "Estimand"),
+                ("usdm:EstimandAttribute",   "Estimand Attribute"),
+                ("usdm:BiomedicalConcept",   "Biomedical Concept"),
+                ("usdm:Indication",          "Indication"),
+                ("usdm:StudyCohort",         "Study Cohort"),
+                ("usdm:ScheduledActivity",   "Scheduled Activity"),
+                ("usdm:StudyIntervention",   "Study Intervention"),
+            ]
+            usdm_standards = await conn.fetch(
+                """SELECT id, external_id FROM context_nodes
+                   WHERE node_type='standard' AND org_id=$1
+                     AND (external_id LIKE 'standard:USDM-%' OR external_id LIKE 'standard:DDF-%')""",
+                uuid.UUID(org_id),
+            )
+            if usdm_standards:
+                concept_id_map: dict[str, uuid.UUID] = {}
+                for ext_id, label in _USDM_CONCEPTS:
+                    existing = await conn.fetchrow(
+                        "SELECT id FROM context_nodes WHERE external_id=$1 AND org_id=$2",
+                        ext_id, uuid.UUID(org_id),
+                    )
+                    if existing:
+                        concept_id_map[ext_id] = existing["id"]
+                    else:
+                        new_id = uuid.uuid4()
+                        try:
+                            await conn.execute(
+                                """INSERT INTO context_nodes
+                                   (id, org_id, node_type, external_id, label, metadata)
+                                   VALUES ($1, $2, 'usdm_concept', $3, $4, '{"source":"bootstrap"}')
+                                   ON CONFLICT DO NOTHING""",
+                                new_id, uuid.UUID(org_id), ext_id, label,
+                            )
+                            concept_id_map[ext_id] = new_id
+                            nodes_created += 1
+                        except Exception:
+                            pass
+                for std in usdm_standards:
+                    for concept_ext, _ in _USDM_CONCEPTS:
+                        concept_id = concept_id_map.get(concept_ext)
+                        if not concept_id:
+                            continue
+                        try:
+                            await conn.execute(
+                                """INSERT INTO context_edges
+                                   (id, source_node_id, target_node_id, edge_type, weight, metadata)
+                                   VALUES ($1, $2, $3, 'governs', 1.0, '{}')
+                                   ON CONFLICT DO NOTHING""",
+                                uuid.uuid4(), std["id"], concept_id,
+                            )
+                            edges_created += 1
+                        except Exception:
+                            pass
+
+                # ── Fix 2: governs edge from USDM-IG standard → uploaded usdm_ig documents
+                try:
+                    usdm_ig_docs = await conn.fetch(
+                        """SELECT cn.id FROM context_nodes cn
+                           JOIN documents d ON d.id::text = cn.external_id
+                           WHERE cn.node_type='document' AND cn.org_id=$1
+                             AND d.document_type='usdm_ig'""",
+                        uuid.UUID(org_id),
+                    )
+                    for std in usdm_standards:
+                        if "USDM-IG" in (std["external_id"] or ""):
+                            for doc_node in usdm_ig_docs:
+                                await conn.execute(
+                                    """INSERT INTO context_edges
+                                       (id, source_node_id, target_node_id, edge_type, weight, metadata)
+                                       VALUES ($1, $2, $3, 'governs', 1.0, '{"reason":"usdm_ig_document"}')
+                                       ON CONFLICT DO NOTHING""",
+                                    uuid.uuid4(), std["id"], doc_node["id"],
+                                )
+                                edges_created += 1
+                except Exception as e:
+                    log.warning("standards_sync.usdm_doc_link_failed", error=str(e))
+
+                # ── Fix 3: is_type edges from entity nodes (extracted from usdm_ig docs) → usdm_concept nodes
+                try:
+                    from difflib import SequenceMatcher
+                    entity_nodes = await conn.fetch(
+                        """SELECT cn.id, cn.label FROM context_nodes cn
+                           JOIN context_edges ce ON ce.source_node_id = cn.id AND ce.edge_type = 'extracted_from'
+                           JOIN context_nodes doc ON doc.id = ce.target_node_id AND doc.node_type = 'document'
+                           JOIN documents d ON d.id::text = doc.external_id AND d.document_type = 'usdm_ig'
+                           WHERE cn.node_type = 'entity' AND cn.org_id = $1""",
+                        uuid.UUID(org_id),
+                    )
+                    concept_label_map = {
+                        label.lower(): concept_id_map[ext_id]
+                        for ext_id, label in _USDM_CONCEPTS
+                        if ext_id in concept_id_map
+                    }
+                    for ent in entity_nodes:
+                        ent_lower = (ent["label"] or "").lower()
+                        # Exact match first
+                        matched = concept_label_map.get(ent_lower)
+                        if not matched:
+                            # Fuzzy: find best scoring usdm_concept label
+                            best_score, best_cid = 0.0, None
+                            for clabel, cid in concept_label_map.items():
+                                score = SequenceMatcher(None, ent_lower, clabel).ratio()
+                                if score > best_score:
+                                    best_score, best_cid = score, cid
+                            if best_score >= 0.55:
+                                matched = best_cid
+                        if matched:
+                            await conn.execute(
+                                """INSERT INTO context_edges
+                                   (id, source_node_id, target_node_id, edge_type, weight, metadata)
+                                   VALUES ($1, $2, $3, 'is_type', 1.0, '{"source":"usdm_ig_entity_match"}')
+                                   ON CONFLICT DO NOTHING""",
+                                uuid.uuid4(), ent["id"], matched,
+                            )
+                            edges_created += 1
+                except Exception as e:
+                    log.warning("standards_sync.entity_concept_link_failed", error=str(e))
+
+                # ── Fix 4: embed usdm_concept nodes that have no embedding yet
+                try:
+                    unembedded = await conn.fetch(
+                        """SELECT id, label FROM context_nodes
+                           WHERE node_type='usdm_concept' AND org_id=$1 AND embedding IS NULL""",
+                        uuid.UUID(org_id),
+                    )
+                    if unembedded:
+                        labels = [r["label"] for r in unembedded]
+                        embeddings = await _embed(labels)
+                        for row, emb in zip(unembedded, embeddings):
+                            if emb:
+                                await conn.execute(
+                                    "UPDATE context_nodes SET embedding=$1::vector WHERE id=$2",
+                                    _vec_str(emb), row["id"],
+                                )
+                except Exception as e:
+                    log.warning("standards_sync.usdm_concept_embed_failed", error=str(e))
+
+        except Exception as e:
+            log.warning("standards_sync.edges_failed", error=str(e))
+
+    log.info("standards_sync.complete", nodes_created=nodes_created, edges_created=edges_created)
+    return {"ok": True, "nodes_created": nodes_created, "edges_created": edges_created}
+
+
+# ─── Client-Specific Context Graph ───────────────────────────────────────────
+
+_ROLES: dict[str, list[str]] = {
+    "platform_admin": ["platform:*", "study:*", "agent:*"],
+    "tenant_admin":   ["study:data:read", "study:reports:write", "agent:manage"],
+    "analyst":        ["study:data:read", "study:reports:write"],
+    "viewer":         ["study:data:read"],
+}
+
+_USDM_SECTIONS = [
+    "meta", "studyIdentifiers", "studyProtocols", "therapeuticAreas",
+    "objectives", "estimands", "populations", "arms", "epochs", "activities",
+]
+
+
+class BuildClientGraphRequest(BaseModel):
+    org_id: str
+    conversion_id: str
+    study_id: Optional[str] = None
+
+
+@app.post("/client-graph/build-from-usdm")
+async def build_client_graph(req: BuildClientGraphRequest):
+    t0 = _time.monotonic()
+    async with db_pool.acquire() as conn:
+        # Phase A — fetch source data
+        conv = await conn.fetchrow(
+            """SELECT usdm_json, run_id, created_by,
+                      eval_accuracy, eval_completeness, eval_standards,
+                      eval_hallucination, eval_readability, eval_consistency,
+                      confidence, study_id
+               FROM usdm_conversions WHERE id=$1""",
+            req.conversion_id,
+        )
+        if not conv:
+            raise HTTPException(404, "Conversion not found")
+
+        usdm_json = conv["usdm_json"]
+        if isinstance(usdm_json, str):
+            try:
+                usdm_json = json.loads(usdm_json)
+            except Exception:
+                usdm_json = {}
+        usdm_json = usdm_json or {}
+
+        effective_study_id = req.study_id or conv.get("study_id")
+        run_id = str(conv["run_id"]) if conv["run_id"] else None
+
+        traces = []
+        if run_id:
+            traces = await conn.fetch(
+                "SELECT id, trace_type, output, confidence, sources FROM decision_traces "
+                "WHERE agent_run_id=$1 ORDER BY created_at",
+                run_id,
+            )
+
+        learnings = await conn.fetch(
+            "SELECT id, learning_type, content, confidence, agent_id FROM agent_learnings "
+            "WHERE org_id=$1 ORDER BY created_at DESC LIMIT 20",
+            req.org_id,
+        )
+
+        users = await conn.fetch(
+            "SELECT id, email, name, roles FROM users WHERE org_id=$1",
+            req.org_id,
+        )
+
+        nodes_created = 0
+        edges_created = 0
+
+        # Helper — upsert a context_node and return its UUID
+        async def upsert_node(node_type: str, ext_id: str, label: str, metadata: dict) -> uuid.UUID:
+            nonlocal nodes_created
+            existing = await conn.fetchrow(
+                "SELECT id FROM context_nodes WHERE external_id=$1 AND org_id=$2",
+                ext_id, req.org_id,
+            )
+            if existing:
+                await conn.execute(
+                    "UPDATE context_nodes SET label=$1, metadata=$2, node_type=$3 WHERE id=$4",
+                    label, json.dumps(metadata), node_type, existing["id"],
+                )
+                return existing["id"]
+            nid = uuid.uuid4()
+            await conn.execute(
+                """INSERT INTO context_nodes
+                   (id, node_type, external_id, org_id, study_id, label, metadata)
+                   VALUES ($1,$2,$3,$4,$5,$6,$7)
+                   ON CONFLICT DO NOTHING""",
+                nid, node_type, ext_id, req.org_id, effective_study_id,
+                label, json.dumps(metadata),
+            )
+            nodes_created += 1
+            return nid
+
+        async def upsert_edge(src: uuid.UUID, tgt: uuid.UUID, etype: str):
+            nonlocal edges_created
+            try:
+                await conn.execute(
+                    """INSERT INTO context_edges
+                       (source_node_id, target_node_id, edge_type, weight, metadata)
+                       VALUES ($1,$2,$3,1.0,'{}')
+                       ON CONFLICT DO NOTHING""",
+                    src, tgt, etype,
+                )
+                edges_created += 1
+            except Exception:
+                pass
+
+        # Phase B — USDM section nodes
+        conv_node_id = await upsert_node(
+            "conversion", f"conv:{req.conversion_id}", "USDM Conversion",
+            {"conversion_id": req.conversion_id, "study_id": effective_study_id},
+        )
+
+        section_node_ids: dict[str, uuid.UUID] = {}
+        eval_map = {
+            "meta": conv["eval_accuracy"], "studyProtocols": conv["eval_completeness"],
+            "therapeuticAreas": conv["eval_standards"], "objectives": conv["eval_accuracy"],
+            "estimands": conv["eval_consistency"], "populations": conv["eval_completeness"],
+            "arms": conv["eval_readability"], "epochs": conv["eval_readability"],
+            "activities": conv["eval_completeness"], "studyIdentifiers": conv["eval_standards"],
+        }
+        for section_key in _USDM_SECTIONS:
+            val = usdm_json.get(section_key)
+            if val is None:
+                continue
+            preview = str(val)[:200] if not isinstance(val, dict) else json.dumps(val)[:200]
+            nid = await upsert_node(
+                "usdm_section",
+                f"usdm_section:{req.conversion_id}:{section_key}",
+                section_key,
+                {"section_key": section_key, "value_preview": preview,
+                 "eval_score": eval_map.get(section_key), "conversion_id": req.conversion_id},
+            )
+            section_node_ids[section_key] = nid
+            await upsert_edge(nid, conv_node_id, "produced_by")
+
+        # Phase C — role & permission nodes + user nodes
+        org_node_id = await upsert_node(
+            "organization", f"org:{req.org_id}", req.org_id,
+            {"org_id": req.org_id},
+        )
+
+        role_node_ids: dict[str, uuid.UUID] = {}
+        perm_node_ids: dict[str, uuid.UUID] = {}
+        for role_name, perms in _ROLES.items():
+            rnid = await upsert_node(
+                "role", f"role:{req.org_id}:{role_name}", role_name,
+                {"permissions": perms, "org_id": req.org_id},
+            )
+            role_node_ids[role_name] = rnid
+            for perm in perms:
+                if perm not in perm_node_ids:
+                    pnid = await upsert_node(
+                        "permission", f"perm:{perm}", perm, {"permission": perm},
+                    )
+                    perm_node_ids[perm] = pnid
+                await upsert_edge(rnid, perm_node_ids[perm], "grants")
+
+        for u in users:
+            u_roles = u["roles"] if isinstance(u["roles"], list) else []
+            u_nid = await upsert_node(
+                "user", f"user:{u['id']}", u["email"] or str(u["id"]),
+                {"user_id": str(u["id"]), "name": u["name"], "roles": u_roles},
+            )
+            await upsert_edge(u_nid, org_node_id, "belongs_to")
+            for r in u_roles:
+                if r in role_node_ids:
+                    await upsert_edge(u_nid, role_node_ids[r], "has_role")
+
+        # Phase D — learning nodes
+        for lrn in learnings:
+            content = lrn["content"] or ""
+            lnid = await upsert_node(
+                "learning",
+                f"learning:{lrn['id']}",
+                str(lrn["learning_type"]),
+                {"content": content[:300], "confidence": lrn["confidence"],
+                 "agent_id": str(lrn["agent_id"]) if lrn["agent_id"] else None,
+                 "learning_type": lrn["learning_type"]},
+            )
+            for section_key, snid in section_node_ids.items():
+                if section_key.lower() in content.lower():
+                    await upsert_edge(lnid, snid, "applies_to")
+
+        # Phase E — decision trace nodes
+        for tr in traces:
+            output_raw = tr["output"] or {}
+            if isinstance(output_raw, str):
+                try:
+                    output_raw = json.loads(output_raw)
+                except Exception:
+                    output_raw = {}
+            preview = json.dumps(output_raw)[:200]
+            sources_count = len(tr["sources"]) if tr["sources"] else 0
+            dnid = await upsert_node(
+                "decision",
+                f"decision:{tr['id']}",
+                str(tr["trace_type"]),
+                {"output_preview": preview, "confidence": tr["confidence"],
+                 "sources_count": sources_count, "trace_type": tr["trace_type"]},
+            )
+            for section_key, snid in section_node_ids.items():
+                if section_key.lower() in preview.lower():
+                    await upsert_edge(dnid, snid, "influenced_by")
+
+        # Phase F — update usdm_conversions
+        node_types_summary = {
+            "usdm_section": len(section_node_ids),
+            "role": len(role_node_ids),
+            "permission": len(perm_node_ids),
+            "user": len(users),
+            "learning": len(learnings),
+            "decision": len(traces),
+        }
+        total_nodes = nodes_created
+        observe_summary = {
+            "node_types": node_types_summary,
+            "total_nodes": total_nodes,
+            "edges_created": edges_created,
+            "built_at": datetime.now(timezone.utc).isoformat(),
+        }
+        await conn.execute(
+            """UPDATE usdm_conversions
+               SET client_graph_built=true,
+                   client_graph_node_count=$1,
+                   observe_summary=$2
+               WHERE id=$3""",
+            total_nodes, json.dumps(observe_summary), req.conversion_id,
+        )
+
+    duration_ms = int((_time.monotonic() - t0) * 1000)
+    return {
+        "ok": True,
+        "nodes_created": total_nodes,
+        "edges_created": edges_created,
+        "node_types_summary": node_types_summary,
+        "duration_ms": duration_ms,
+    }
+
+
+_CLIENT_GRAPH_NODE_TYPES = (
+    "usdm_section", "role", "permission", "user",
+    "organization", "learning", "decision", "conversion",
+)
+
+
+@app.get("/client-graph/{org_id}")
+async def get_client_graph(
+    org_id: str,
+    study_id: Optional[str] = Query(None),
+    conversion_id: Optional[str] = Query(None),
+):
+    async with db_pool.acquire() as conn:
+        node_query = """
+            SELECT id, node_type, external_id, label, metadata, study_id
+            FROM context_nodes
+            WHERE org_id=$1 AND node_type = ANY($2::text[])
+        """
+        params: list = [org_id, list(_CLIENT_GRAPH_NODE_TYPES)]
+        if study_id:
+            node_query += " AND (study_id=$3 OR study_id IS NULL)"
+            params.append(study_id)
+        if conversion_id:
+            node_query += f" AND (metadata->>'conversion_id'=${ len(params) + 1 } OR node_type NOT IN ('usdm_section','conversion'))"
+            params.append(conversion_id)
+
+        node_rows = await conn.fetch(node_query, *params)
+        node_ids = [r["id"] for r in node_rows]
+
+        edges: list[dict] = []
+        if node_ids:
+            edge_rows = await conn.fetch(
+                """SELECT source_node_id, target_node_id, edge_type, weight
+                   FROM context_edges
+                   WHERE source_node_id = ANY($1::uuid[])
+                      OR target_node_id = ANY($1::uuid[])""",
+                node_ids,
+            )
+            node_id_set = {r["id"] for r in node_rows}
+            edges = [
+                {
+                    "source": str(e["source_node_id"]),
+                    "target": str(e["target_node_id"]),
+                    "type":   e["edge_type"],
+                    "weight": e["weight"],
+                }
+                for e in edge_rows
+                if e["source_node_id"] in node_id_set and e["target_node_id"] in node_id_set
+            ]
+
+        nodes = []
+        for r in node_rows:
+            meta = r["metadata"]
+            if isinstance(meta, str):
+                try:
+                    meta = json.loads(meta)
+                except Exception:
+                    meta = {}
+            nodes.append({
+                "id":        str(r["id"]),
+                "type":      r["node_type"],
+                "label":     r["label"],
+                "metadata":  meta,
+                "study_id":  r["study_id"],
+            })
+
+        return {"nodes": nodes, "edges": edges, "count": len(nodes)}
+
+
+# ─── Foundation Graph ─────────────────────────────────────────────────────────
+
+_FOUNDATION_NODE_TYPES = ['standard', 'regulatory_req', 'codelist', 'sdtm_domain', 'usdm_concept']
+
+
+@app.get("/graph/foundation")
+async def get_foundation_graph():
+    """
+    Return foundation graph nodes and edges.
+
+    Source: Nodes extracted from documents that have been marked
+    is_foundational=true in the documents table (document, entity, concept
+    node types). Pre-seeded platform standard nodes are excluded — the graph
+    is entirely document-driven.
+
+    Used by the Foundation Graph UI.
+    """
+    async with db_pool.acquire() as conn:
+        # ── Nodes from documents marked is_foundational ────────────────────
+        foundational_doc_ids = await conn.fetch("""
+            SELECT id::text FROM documents
+            WHERE is_foundational = true
+            ORDER BY created_at DESC
+        """)
+        doc_nodes: list = []
+        if foundational_doc_ids:
+            fid_strs = [r["id"] for r in foundational_doc_ids]
+            # Fetch document-level and chunk/entity/concept nodes linked to these docs
+            doc_nodes = await conn.fetch("""
+                SELECT DISTINCT cn.id::text, cn.node_type, cn.label, cn.metadata,
+                       cn.importance_weight, cn.external_id,
+                       (cn.embedding IS NOT NULL) AS has_embedding
+                FROM context_nodes cn
+                WHERE cn.node_type IN ('document', 'entity', 'concept')
+                  AND (
+                    cn.external_id LIKE ANY($1)
+                    OR EXISTS (
+                      SELECT 1 FROM context_edges ce
+                      JOIN context_nodes src ON ce.source_node_id = src.id
+                      WHERE ce.target_node_id = cn.id
+                        AND src.node_type = 'document'
+                        AND src.external_id LIKE ANY($1)
+                    )
+                  )
+                ORDER BY cn.node_type, cn.label
+                LIMIT 300
+            """, [f"%{fid}%" for fid in fid_strs])
+
+        all_nodes = list(doc_nodes)
+
+        node_uuids = []
+        for n in all_nodes:
+            try:
+                node_uuids.append(uuid.UUID(n["id"]))
+            except Exception:
+                pass
+
+        edges = []
+        if node_uuids:
+            edge_rows = await conn.fetch("""
+                SELECT id::text, source_node_id::text, target_node_id::text,
+                       edge_type, weight, metadata
+                FROM context_edges
+                WHERE source_node_id = ANY($1::uuid[])
+                  AND target_node_id = ANY($1::uuid[])
+            """, node_uuids)
+            edges = [dict(e) for e in edge_rows]
+
+        def _parse_meta(raw) -> dict:
+            if isinstance(raw, str):
+                try:
+                    return json.loads(raw)
+                except Exception:
+                    return {}
+            if raw is None:
+                return {}
+            return dict(raw)
+
+        node_type_counts: dict = {}
+        for n in all_nodes:
+            nt = n["node_type"]
+            node_type_counts[nt] = node_type_counts.get(nt, 0) + 1
+
+        # Which doc IDs are foundational (for UI badge info)
+        foundational_ids = [r["id"] for r in foundational_doc_ids] if foundational_doc_ids else []
+
+        return {
+            "nodes": [{**dict(n), "metadata": _parse_meta(n["metadata"])} for n in all_nodes],
+            "edges": [{**e, "metadata": _parse_meta(e["metadata"])} for e in edges],
+            "stats": {
+                "total_nodes": len(all_nodes),
+                "total_edges": len(edges),
+                "node_types": node_type_counts,
+                "foundational_documents": len(foundational_ids),
+            },
+        }
+
+
+# ─── Knowledge Graph ──────────────────────────────────────────────────────────
+
+@app.get("/knowledge-graph")
+async def get_knowledge_graph(
+    org_id: str = Query(...),
+    study_id: Optional[str] = Query(None),
+):
+    """4-layer clinical trial knowledge graph.
+
+    Layers:
+      standards   → foundational / standard-type documents
+      protocol    → protocol documents (optionally filtered by study_id)
+      usdm        → usdm_conversions records linked to those protocols
+      downstream  → CRF, SAP, CSR, SDTM/ADaM datasets in same studies
+
+    Edge types derived in Python:
+      governs       — every standard → every protocol
+      converts_to   — protocol → usdm (via usdm_conversions.protocol_doc_id)
+      generates     — usdm → downstream docs in same study
+      version_of    — protocol → parent protocol (parent_document_id chain)
+    """
+    async with db_pool.acquire() as conn:
+        # A: Standards layer
+        std_rows = await conn.fetch("""
+            SELECT d.id::text AS id, d.document_type AS doc_type,
+                   d.name AS label, d.version, d.status,
+                   d.document_date, d.study_id AS study_id,
+                   s.name AS study_name, u.name AS uploaded_by_name
+            FROM documents d
+            LEFT JOIN studies s ON s.id::text = d.study_id
+            LEFT JOIN users   u ON u.id::text = d.uploaded_by
+            WHERE d.org_id = $1::uuid
+              AND (d.document_type IN
+                    ('usdm_ig','sdtm_ig','adam_ig','ich_guideline','controlled_terminology')
+               OR d.is_foundational = true)
+            ORDER BY d.document_type, d.name
+        """, org_id)
+
+        # B: Protocol layer (optionally filtered by study)
+        prot_rows = await conn.fetch("""
+            SELECT d.id::text AS id, d.document_type AS doc_type,
+                   d.name AS label, d.version, d.status,
+                   d.document_date, d.study_id AS study_id,
+                   d.parent_document_id::text AS parent_document_id,
+                   d.version_number,
+                   s.name AS study_name, u.name AS uploaded_by_name
+            FROM documents d
+            LEFT JOIN studies s ON s.id::text = d.study_id
+            LEFT JOIN users   u ON u.id::text = d.uploaded_by
+            WHERE d.org_id = $1::uuid
+              AND d.document_type = 'protocol'
+              AND d.is_foundational = false
+              AND ($2::text IS NULL OR d.study_id = $2)
+            ORDER BY d.created_at DESC
+        """, org_id, study_id)
+
+        # C: USDM layer (completed / approved / waiting_approval)
+        usdm_rows = await conn.fetch("""
+            SELECT uc.id::text AS id, uc.name AS label,
+                   uc.status, uc.protocol_doc_id,
+                   uc.study_id AS study_id,
+                   uc.confidence, uc.created_at
+            FROM usdm_conversions uc
+            WHERE uc.org_id = $1::uuid
+              AND uc.status IN ('completed','approved','waiting_approval')
+              AND ($2::text IS NULL OR uc.study_id = $2)
+            ORDER BY uc.updated_at DESC
+        """, org_id, study_id)
+
+        # D: Downstream layer
+        ds_rows = await conn.fetch("""
+            SELECT d.id::text AS id, d.document_type AS doc_type,
+                   d.name AS label, d.version, d.status,
+                   d.document_date, d.study_id AS study_id,
+                   s.name AS study_name, u.name AS uploaded_by_name
+            FROM documents d
+            LEFT JOIN studies s ON s.id::text = d.study_id
+            LEFT JOIN users   u ON u.id::text = d.uploaded_by
+            WHERE d.org_id = $1::uuid
+              AND d.document_type IN ('crf','sap','csr','sdtm_dataset','adam_dataset')
+              AND ($2::text IS NULL OR d.study_id = $2)
+            ORDER BY d.document_type, d.name
+        """, org_id, study_id)
+
+        # E: CDASH domain nodes (platform-level foundational, always included)
+        cdash_rows = await conn.fetch("""
+            SELECT cn.id::text AS id, 'cdash_domain' AS doc_type,
+                   cn.label AS label,
+                   cn.metadata->>'domain_name'  AS full_name,
+                   cn.metadata->>'cdash_class'  AS cdash_class,
+                   cn.metadata->>'sdtm_domain'  AS sdtm_domain,
+                   (cn.metadata->>'field_count')::int AS field_count
+            FROM context_nodes cn
+            WHERE cn.org_id = '00000000-0000-0000-0000-000000000000'
+              AND cn.node_type = 'sdtm_domain'
+              AND cn.external_id LIKE 'cdash:domain:%'
+            ORDER BY cn.metadata->>'cdash_class', cn.label
+        """)
+
+    def _to_node(row, layer: str) -> dict:
+        d = dict(row)
+        d["layer"] = layer
+        d["node_type"] = layer
+        d["metadata"] = {}
+        # serialise non-JSON-safe types
+        if d.get("document_date"):
+            d["document_date"] = d["document_date"].isoformat()
+        if d.get("created_at"):
+            d["created_at"] = d["created_at"].isoformat()
+        return d
+
+    def _cdash_node(row) -> dict:
+        d = dict(row)
+        d["layer"] = "standards"
+        d["node_type"] = "cdash_domain"
+        d["metadata"] = {
+            "cdash_class": d.get("cdash_class"),
+            "sdtm_domain": d.get("sdtm_domain"),
+            "field_count": d.get("field_count"),
+            "full_name":   d.get("full_name"),
+        }
+        return d
+
+    standards_nodes = [_to_node(r, "standards") for r in std_rows]
+    cdash_nodes     = [_cdash_node(r) for r in cdash_rows]
+    protocol_nodes  = [_to_node(r, "protocol")  for r in prot_rows]
+    usdm_nodes      = [_to_node(r, "usdm")      for r in usdm_rows]
+    ds_nodes        = [_to_node(r, "downstream") for r in ds_rows]
+    all_nodes       = standards_nodes + cdash_nodes + protocol_nodes + usdm_nodes + ds_nodes
+
+    edges: list[dict] = []
+    prot_id_set = {p["id"] for p in protocol_nodes}
+
+    # governs: only protocol-relevant standards → protocol nodes
+    PROTOCOL_GOVERNING_TYPES = {"usdm_ig", "ich_guideline", "controlled_terminology"}
+    protocol_governing_stds = [
+        s for s in standards_nodes
+        if s.get("doc_type") in PROTOCOL_GOVERNING_TYPES
+    ]
+    governs_count = 0
+    for std in protocol_governing_stds + cdash_nodes:
+        for prot in protocol_nodes:
+            if governs_count >= 500:
+                break
+            edges.append({"id": f"governs-{std['id']}-{prot['id']}",
+                           "source": std["id"], "target": prot["id"],
+                           "edge_type": "governs", "label": "governs"})
+            governs_count += 1
+
+    # governs: SDTM IG → sdtm_dataset downstream nodes
+    sdtm_ig_nodes = [s for s in standards_nodes if s.get("doc_type") == "sdtm_ig"]
+    adam_ig_nodes  = [s for s in standards_nodes if s.get("doc_type") == "adam_ig"]
+    sdtm_ds_nodes  = [d for d in ds_nodes if d.get("doc_type") == "sdtm_dataset"]
+    adam_ds_nodes  = [d for d in ds_nodes if d.get("doc_type") == "adam_dataset"]
+
+    for std in sdtm_ig_nodes:
+        for ds in sdtm_ds_nodes:
+            edges.append({"id": f"governs-{std['id']}-{ds['id']}",
+                           "source": std["id"], "target": ds["id"],
+                           "edge_type": "governs", "label": "governs"})
+
+    for std in adam_ig_nodes:
+        for ds in adam_ds_nodes:
+            edges.append({"id": f"governs-{std['id']}-{ds['id']}",
+                           "source": std["id"], "target": ds["id"],
+                           "edge_type": "governs", "label": "governs"})
+
+    # governs: USDM IG → USDM model nodes (USDM IG defines the USDM schema)
+    usdm_ig_nodes = [s for s in standards_nodes if s.get("doc_type") == "usdm_ig"]
+    for std in usdm_ig_nodes:
+        for u in usdm_nodes:
+            edges.append({"id": f"governs-{std['id']}-{u['id']}",
+                           "source": std["id"], "target": u["id"],
+                           "edge_type": "governs", "label": "governs"})
+
+    # converts_to: protocol → USDM via protocol_doc_id
+    for u in usdm_nodes:
+        pid = u.get("protocol_doc_id")
+        if pid and pid in prot_id_set:
+            edges.append({"id": f"converts-{pid}-{u['id']}",
+                           "source": pid, "target": u["id"],
+                           "edge_type": "converts_to", "label": "converts to"})
+
+    # generates: USDM → downstream via matching study_id
+    usdm_by_study: dict[str, list[str]] = {}
+    for u in usdm_nodes:
+        sid = u.get("study_id")
+        if sid:
+            usdm_by_study.setdefault(sid, []).append(u["id"])
+    for ds in ds_nodes:
+        sid = ds.get("study_id")
+        if sid and sid in usdm_by_study:
+            for uid in usdm_by_study[sid]:
+                edges.append({"id": f"generates-{uid}-{ds['id']}",
+                               "source": uid, "target": ds["id"],
+                               "edge_type": "generates", "label": "generates"})
+
+    # version_of: newer protocol → parent protocol
+    for prot in protocol_nodes:
+        parent_id = prot.get("parent_document_id")
+        if parent_id and parent_id in prot_id_set:
+            edges.append({"id": f"version-{prot['id']}-{parent_id}",
+                           "source": prot["id"], "target": parent_id,
+                           "edge_type": "version_of", "label": "version of"})
+
+    return {
+        "nodes": all_nodes,
+        "edges": edges,
+        "stats": {
+            "total_nodes":      len(all_nodes),
+            "standards_count":  len(standards_nodes),
+            "cdash_count":      len(cdash_nodes),
+            "protocols_count":  len(protocol_nodes),
+            "usdm_count":       len(usdm_nodes),
+            "downstream_count": len(ds_nodes),
+            "total_edges":      len(edges),
+        },
+    }
+
+
+# ─── CDASH ────────────────────────────────────────────────────────────────────
+
+_CDASH_DOMAINS = [
+    ("AE", "Adverse Events",                    "Events",          "AE", 28, "Adverse events occurring during the study"),
+    ("CE", "Clinical Events",                   "Events",          "CE", 22, "Targeted clinical events of interest"),
+    ("DS", "Disposition",                       "Events",          "DS", 18, "Study discontinuation and completion data"),
+    ("DV", "Protocol Deviations",               "Events",          "DV", 12, "Deviations from the study protocol"),
+    ("HO", "Healthcare Encounters",             "Events",          "HO", 24, "Hospitalizations and outpatient encounters"),
+    ("MH", "Medical History",                   "Events",          "MH", 22, "Pre-existing medical conditions"),
+    ("AG", "Procedure Agents",                  "Interventions",   "AG", 18, "Agents used in study procedures"),
+    ("CM", "Concomitant/Prior Medications",     "Interventions",   "CM", 30, "Medications taken before and during study"),
+    ("EX", "Exposure",                          "Interventions",   "EX", 28, "Study treatment administration data"),
+    ("ML", "Meals Data",                        "Interventions",   "ML", 18, "Meal and diet data during study"),
+    ("PR", "Procedures",                        "Interventions",   "PR", 22, "Study-related procedures performed"),
+    ("SU", "Substance Use",                     "Interventions",   "SU", 22, "Tobacco, alcohol, caffeine use"),
+    ("EG", "ECG Test Results",                  "Findings",        "EG", 26, "Electrocardiogram measurements"),
+    ("IE", "Inclusion/Exclusion Not Met",       "Findings",        "IE", 14, "Protocol eligibility deviations"),
+    ("LB", "Laboratory Test Results",           "Findings",        "LB", 34, "Clinical laboratory measurements"),
+    ("PE", "Physical Examination",              "Findings",        "PE", 22, "Physical examination findings"),
+    ("QS", "Questionnaires",                    "Findings",        "QS", 18, "Patient-reported outcome instruments"),
+    ("SC", "Subject Characteristics",           "Findings",        "SC", 14, "Demographic and subject-level characteristics"),
+    ("VS", "Vital Signs",                       "Findings",        "VS", 32, "Blood pressure, heart rate, weight etc."),
+    ("CO", "Comments",                          "Special Purpose", "CO",  8, "Free-text comments"),
+    ("DA", "Drug Accountability",               "Special Purpose", "DA", 24, "Investigational product dispensing and returns"),
+    ("DM", "Demographics",                      "Special Purpose", "DM", 32, "Subject identifiers, sex, race, age"),
+    ("SV", "Subject Visits",                    "Special Purpose", "SV", 14, "Scheduled visit attendance and dates"),
+]
+
+
+@app.post("/standards/seed-cdash")
+async def seed_cdash_standards():
+    """Idempotent seed of CDASH Model v1.1.0 domain nodes into context_nodes."""
+    PLATFORM_ORG = uuid.UUID("00000000-0000-0000-0000-000000000000")
+    seeded = 0
+
+    async with db_pool.acquire() as conn:
+        # Upsert CDASH Model 1.1.0 into standards_catalogue
+        await conn.execute("""
+            INSERT INTO standards_catalogue
+              (id, standard_code, standard_name, standard_type, version, publisher, is_active)
+            VALUES (gen_random_uuid(),
+                    'CDASH-MODEL-1.1.0',
+                    'Clinical Data Acquisition Standards Harmonization Model v1.1.0',
+                    'data_collection_standard', '1.1.0', 'CDISC', true)
+            ON CONFLICT (standard_code) DO NOTHING
+        """)
+
+        for code, name, cls, sdtm_target, fields, desc in _CDASH_DOMAINS:
+            ext_id = f"cdash:domain:{code}"
+            meta = json.dumps({
+                "domain_code": code, "domain_name": name, "cdash_class": cls,
+                "sdtm_domain": sdtm_target, "field_count": fields,
+                "description": desc, "source": "cdash_model_1.1.0",
+            })
+            result = await conn.execute("""
+                INSERT INTO context_nodes
+                  (id, org_id, node_type, label, external_id, metadata, importance_weight)
+                SELECT gen_random_uuid(), $1, 'sdtm_domain', $2, $3, $4::jsonb, 0.9
+                WHERE NOT EXISTS (
+                  SELECT 1 FROM context_nodes
+                  WHERE org_id = $1 AND node_type = 'sdtm_domain' AND external_id = $3
+                )
+            """, PLATFORM_ORG, code, ext_id, meta)
+            if result == "INSERT 0 1":
+                seeded += 1
+
+        # Link each CDASH domain → matching doc-derived SDTM domain node (maps_to edge)
+        cdash_nodes_db = await conn.fetch(
+            "SELECT id, label FROM context_nodes WHERE org_id=$1 AND external_id LIKE 'cdash:domain:%'",
+            PLATFORM_ORG,
+        )
+        edges_created = 0
+        for cn in cdash_nodes_db:
+            sdtm_node = await conn.fetchrow(
+                """SELECT id FROM context_nodes
+                   WHERE org_id=$1 AND node_type='sdtm_domain'
+                     AND external_id = $2""",
+                PLATFORM_ORG, f"{PLATFORM_ORG}::domain::{cn['label']}",
+            )
+            if sdtm_node:
+                await conn.execute("""
+                    INSERT INTO context_edges
+                      (id, source_node_id, target_node_id, edge_type, weight, metadata)
+                    SELECT gen_random_uuid(), $1, $2, 'maps_to', 1.0, '{}'
+                    WHERE NOT EXISTS (
+                      SELECT 1 FROM context_edges
+                      WHERE source_node_id=$1 AND target_node_id=$2 AND edge_type='maps_to'
+                    )
+                """, cn["id"], sdtm_node["id"])
+                edges_created += 1
+
+    return {"seeded": seeded, "total": len(_CDASH_DOMAINS), "edges_linked": edges_created}
+
+
+@app.get("/standards/cdash-domains")
+async def get_cdash_domains():
+    """Return all seeded CDASH Model v1.1.0 domain nodes, grouped by CDASH class."""
+    PLATFORM_ORG = uuid.UUID("00000000-0000-0000-0000-000000000000")
+    async with db_pool.acquire() as conn:
+        rows = await conn.fetch("""
+            SELECT cn.id::text, cn.label AS code, cn.metadata,
+                   ce.target_node_id::text AS sdtm_node_id
+            FROM context_nodes cn
+            LEFT JOIN context_edges ce
+              ON ce.source_node_id = cn.id AND ce.edge_type = 'maps_to'
+            WHERE cn.org_id = $1
+              AND cn.node_type = 'sdtm_domain'
+              AND cn.external_id LIKE 'cdash:domain:%'
+            ORDER BY cn.metadata->>'cdash_class', cn.label
+        """, PLATFORM_ORG)
+
+    domains = []
+    for r in rows:
+        m = r["metadata"] or {}
+        domains.append({
+            "id":           r["id"],
+            "code":         r["code"],
+            "name":         m.get("domain_name", r["code"]),
+            "class":        m.get("cdash_class", ""),
+            "sdtm_domain":  m.get("sdtm_domain", ""),
+            "field_count":  m.get("field_count", 0),
+            "description":  m.get("description", ""),
+            "sdtm_node_id": r["sdtm_node_id"],
+        })
+
+    by_class: dict = {}
+    for d in domains:
+        by_class.setdefault(d["class"], []).append(d)
+
+    return {"domains": domains, "by_class": by_class, "total": len(domains)}
 
 
 # ─── Health ───────────────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@
 .env
 .env.*
 !.env.example
+!.env.dev
 *.pem
 *.key
 
@@ -41,6 +42,18 @@ generated/
 *.zip
 *.pdf
 *.csv
+
+# ── Data backup (committed intentionally — override binary exclusions) ─────────
+!data-backup/**/*.sql
+!data-backup/**/*.dump
+!data-backup/**/*.gz
+!data-backup/**/*.txt
+!data-backup/**/*.sh
+!data-backup/**/*.md
+!data-backup/**/*.pdf
+!data-backup/**/*.csv
+!data-backup/**/*.png
+!data-backup/**/*.json
 
 # ── IDE ───────────────────────────────────────────────────────────────────────
 .idea/

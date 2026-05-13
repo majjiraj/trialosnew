@@ -28,6 +28,7 @@ class Settings(BaseSettings):
     context_graph_url: str = "http://localhost:8008"
     class Config:
         env_file = ".env"
+        extra = 'ignore'
 
 settings = Settings()
 db_pool: asyncpg.Pool = None

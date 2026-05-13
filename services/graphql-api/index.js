@@ -426,7 +426,7 @@ const typeDefs = `#graphql
     agentRun(runId: String!): AgentRun
     agentRunDetail(runId: String!): AgentRunDetail
     mappingCheckpoint(runId: String!): MappingCheckpoint
-    agentRunsForOrg(orgId: String!, limit: Int): [AgentRunDetail!]!
+    agentRunsForOrg(orgId: String!, limit: Int, topLevelOnly: Boolean): [AgentRunDetail!]!
 
     # Approval requests
     approvalRequests(studyId: String!, status: String): [ApprovalRequest!]!
@@ -595,7 +595,7 @@ const typeDefs = `#graphql
 
     # Approval decisions
     decideApproval(approvalId: String!, decision: String!, deciderId: String!, note: String): ApprovalRequest!
-    resumeAgentRun(runId: String!, approvalId: String!, decision: String!, modifiedSpec: JSON, decidedBy: String!, note: String, restart: Boolean): JSON!
+    resumeAgentRun(runId: String!, approvalId: String!, decision: String!, modifiedSpec: JSON, decidedBy: String!, reviewerRole: String, note: String, restart: Boolean): JSON!
 
     # Audit
     writeAuditEvent(input: AuditEventInput!): AuditEvent!
@@ -648,9 +648,9 @@ const typeDefs = `#graphql
 
     # USDM Protocol Converter
     createUsdmDraft(orgId: String!, studyId: String, name: String!, createdBy: String): UsdmConversion!
-    beginUsdmConversion(id: ID!, protocolDocId: String!, protocolFilename: String!, protocolS3Key: String!, createdBy: String): UsdmConversion!
-    startUsdmConversion(orgId: String!, studyId: String, protocolDocId: String!, protocolFilename: String!, protocolS3Key: String!, name: String!, createdBy: String): UsdmConversion!
-    updateUsdmConversion(id: ID!, usdmJson: JSON!): UsdmConversion!
+    beginUsdmConversion(id: ID!, protocolDocId: String!, protocolFilename: String!, protocolS3Key: String!, createdBy: String, croReviewerId: String): UsdmConversion!
+    startUsdmConversion(orgId: String!, studyId: String, protocolDocId: String!, protocolFilename: String!, protocolS3Key: String!, name: String!, createdBy: String, croReviewerId: String): UsdmConversion!
+    updateUsdmConversion(id: ID!, usdmJson: JSON!, corrections: JSON): UsdmConversion!
 
     # Evaluators
     triggerEvaluator(runId: String!, evaluatorId: String!, orgId: String!, triggeredBy: String): EvaluatorResult!
@@ -1054,6 +1054,12 @@ const typeDefs = `#graphql
     approvalId: String
     createdBy: String
     errorMessage: String
+    confidence: Float
+    evalAccuracy: Float
+    evalCompleteness: Float
+    evalStandards: Float
+    evalHallucination: Float
+    evalReadability: Float
     createdAt: String
     updatedAt: String
   }
@@ -1144,8 +1150,8 @@ const resolvers = {
       };
     },
 
-    agentRunsForOrg: async (_, { orgId, limit = 50 }) => {
-      const { data } = await axios.get(`${SERVICES.agentRuntime}/runs/org/${orgId}?limit=${limit}`);
+    agentRunsForOrg: async (_, { orgId, limit = 50, topLevelOnly = true }) => {
+      const { data } = await axios.get(`${SERVICES.agentRuntime}/runs/org/${orgId}?limit=${limit}&top_level_only=${topLevelOnly}`);
       return (data.runs || []).map(mapRunDetail);
     },
 
@@ -1204,7 +1210,7 @@ const resolvers = {
 
         // Tasks waiting for USDM review/approval
         const reviewTasks = (convs || [])
-          .filter(c => c.status === 'waiting_approval' && c.approval_id)
+          .filter(c => ['waiting_approval', 'waiting_cro_approval'].includes(c.status) && c.approval_id)
           .map(c => ({
             id: c.approval_id,
             conversionId: c.id,
@@ -1212,10 +1218,14 @@ const resolvers = {
             orgId: c.org_id,
             studyId: c.study_id || null,
             name: c.name,
-            title: `Review USDM Mapping — ${c.name}`,
-            description: `Protocol: ${c.protocol_filename}`,
+            title: c.status === 'waiting_cro_approval'
+              ? `CRO Sign-off — ${c.name}`
+              : `Review USDM Mapping — ${c.name}`,
+            description: c.status === 'waiting_cro_approval'
+              ? `CRO validation required. Protocol: ${c.protocol_filename}`
+              : `Protocol: ${c.protocol_filename}`,
             status: 'pending',
-            taskType: 'review_mapping',
+            taskType: c.status === 'waiting_cro_approval' ? 'cro_review' : 'review_mapping',
             createdAt: c.updated_at || c.created_at,
           }));
 
@@ -1594,6 +1604,12 @@ const resolvers = {
           protocolS3Key: data.protocol_s3_key, name: data.name, status: data.status,
           usdmJson, runId: data.run_id, approvalId: data.approval_id,
           createdBy: data.created_by, errorMessage: data.error_message,
+          confidence: data.confidence ?? null,
+          evalAccuracy: data.eval_accuracy ?? null,
+          evalCompleteness: data.eval_completeness ?? null,
+          evalStandards: data.eval_standards ?? null,
+          evalHallucination: data.eval_hallucination ?? null,
+          evalReadability: data.eval_readability ?? null,
           createdAt: data.created_at, updatedAt: data.updated_at,
         };
       } catch (e) {
@@ -1792,11 +1808,11 @@ const resolvers = {
       });
     },
 
-    resumeAgentRun: async (_, { runId, approvalId, decision, modifiedSpec, decidedBy, note, restart }) => {
+    resumeAgentRun: async (_, { runId, approvalId, decision, modifiedSpec, decidedBy, reviewerRole, note, restart }) => {
       const { data } = await axios.post(`${SERVICES.agentRuntime}/runs/${runId}/resume`, {
         approval_id: approvalId, decision,
         modified_spec: modifiedSpec || null,
-        decided_by: decidedBy, note: note || '',
+        decided_by: decidedBy, reviewer_role: reviewerRole || null, note: note || '',
         restart: restart || false,
       });
       return data;
@@ -2066,10 +2082,11 @@ const resolvers = {
       };
     },
 
-    beginUsdmConversion: async (_, { id, protocolDocId, protocolFilename, protocolS3Key, createdBy }) => {
+    beginUsdmConversion: async (_, { id, protocolDocId, protocolFilename, protocolS3Key, createdBy, croReviewerId }) => {
       const { data } = await axios.post(`${SERVICES.agentRuntime}/usdm/${id}/start`, {
         protocol_doc_id: protocolDocId, protocol_filename: protocolFilename,
         protocol_s3_key: protocolS3Key, created_by: createdBy || null,
+        cro_reviewer_id: croReviewerId || null,
       });
       return {
         id, orgId: null, studyId: null,
@@ -2081,11 +2098,12 @@ const resolvers = {
       };
     },
 
-    startUsdmConversion: async (_, { orgId, studyId, protocolDocId, protocolFilename, protocolS3Key, name, createdBy }) => {
+    startUsdmConversion: async (_, { orgId, studyId, protocolDocId, protocolFilename, protocolS3Key, name, createdBy, croReviewerId }) => {
       const { data } = await axios.post(`${SERVICES.agentRuntime}/usdm`, {
         org_id: orgId, study_id: studyId || null,
         protocol_doc_id: protocolDocId, protocol_filename: protocolFilename,
         protocol_s3_key: protocolS3Key, name, created_by: createdBy || null,
+        cro_reviewer_id: croReviewerId || null,
       });
       // Return a minimal UsdmConversion object (full record fetched on refresh)
       return {
@@ -2097,8 +2115,8 @@ const resolvers = {
       };
     },
 
-    updateUsdmConversion: async (_, { id, usdmJson }) => {
-      const { data } = await axios.patch(`${SERVICES.agentRuntime}/usdm/${id}`, { usdm_json: usdmJson });
+    updateUsdmConversion: async (_, { id, usdmJson, corrections }) => {
+      const { data } = await axios.patch(`${SERVICES.agentRuntime}/usdm/${id}`, { usdm_json: usdmJson, ...(corrections !== undefined && { corrections }) });
       const conv = await axios.get(`${SERVICES.agentRuntime}/usdm/${id}`);
       const c = conv.data;
       return {

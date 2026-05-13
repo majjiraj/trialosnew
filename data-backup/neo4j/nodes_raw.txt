@@ -1,0 +1,208 @@
+l, p
+["AgentRun"], {id: "723d1cfb-7b83-48c6-b279-1996fd6f4b72", study_id: "00000000-0000-0000-0000-000000000003", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-06T14:13:56.330187+00:00", id: "ff2ee5ad-4870-4e56-a0ec-b0b12bfb9b77", label: "Reasoning step"}
+["Feedback"], {created_at: "2026-04-06T14:14:19.603820+00:00", submitted_by: "00000000-0000-0000-0000-000000000010", id: "f04cf266-2b7e-4265-b248-49dd3957949b", org_id: "00000000-0000-0000-0000-000000000000", feedback_type: "mapping_correction"}
+["DecisionTrace"], {trace_type: "output", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-06T14:14:20.587772+00:00", id: "5d5b882c-11d0-46c4-b7e9-68b8d4db4db6", label: "Output step"}
+["AgentRun"], {id: "ba64fd40-87b5-4675-a064-1181d344bea8", study_id: "00000000-0000-0000-0000-000000000003", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-06T14:25:45.339538+00:00", id: "446c4b48-95a4-4db1-8efe-961d51ab059f", label: "Reasoning step"}
+["AgentRun"], {id: "c96f6cbb-be68-4391-9de5-792ad142dc84", study_id: "00000000-0000-0000-0000-000000000003", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-06T14:29:22.386629+00:00", id: "79fcf7f5-dc26-4177-aad7-bf35fec73d1e", label: "Reasoning step"}
+["Feedback"], {created_at: "2026-04-06T14:29:45.630109+00:00", submitted_by: "00000000-0000-0000-0000-000000000010", id: "b9859e9f-433e-4c3d-937a-b5bfa798ef88", org_id: "00000000-0000-0000-0000-000000000000", feedback_type: "mapping_correction"}
+["DecisionTrace"], {trace_type: "output", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-06T14:29:45.939027+00:00", id: "03597acb-f280-4535-831f-a4ed078da063", label: "Output step"}
+["AgentRun"], {id: "6ea0774a-9e0d-4dba-91f3-146b41dc82fa", study_id: "00000000-0000-0000-0000-000000000003", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.193, created_at: "2026-04-07T07:23:12.791277+00:00", id: "84729ac9-e9f1-4641-a75a-4557784e54e6", label: "Reasoning step"}
+["DecisionTrace"], {trace_type: "output", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.95, created_at: "2026-04-07T07:23:23.302868+00:00", id: "9d813af5-4360-4736-aa46-bf7f9e0bc374", label: "Output step"}
+["Score"], {judge_verdict: "pass", faithfulness: 0.5, reasoning_score: 0.8, org_id: "00000000-0000-0000-0000-000000000000", created_at: "2026-04-07T07:23:23.283775+00:00", id: "9ed29080-d88d-48fc-a5d4-cf4b952da20f", hallucination_detected: FALSE}
+["Feedback"], {created_at: "2026-04-07T07:23:47.570770+00:00", submitted_by: "00000000-0000-0000-0000-000000000010", id: "765067a2-c15d-4e33-ae23-48b9c3d0350d", org_id: "00000000-0000-0000-0000-000000000000", feedback_type: "correction"}
+["AgentRun"], {id: "6b5e6e7d-f1a4-4dbc-8f22-eb3866ebfdfe", study_id: "00000000-0000-0000-0000-000000000003", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.193, created_at: "2026-04-07T07:29:00.049230+00:00", id: "7ff82104-b884-4c16-81fd-cfff78f063a7", label: "Reasoning step"}
+["DecisionTrace"], {trace_type: "output", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.95, created_at: "2026-04-07T07:29:10.149428+00:00", id: "ad5ef4a0-a704-45f0-a16b-4ea15b8a9aa7", label: "Output step"}
+["Score"], {judge_verdict: "pass", faithfulness: 0.5, reasoning_score: 0.8, org_id: "00000000-0000-0000-0000-000000000000", created_at: "2026-04-07T07:29:10.135903+00:00", id: "68307fce-d00b-4a61-a66e-fd751055d3b5", hallucination_detected: FALSE}
+["AgentRun"], {id: "a35487a5-ea73-4717-bbee-051a2b3b6898", study_id: "00000000-0000-0000-0000-000000000003", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.193, created_at: "2026-04-07T07:51:55.828834+00:00", id: "af97f4ad-59e8-4010-bb2c-87c726fbc193", label: "Reasoning step"}
+["Score"], {judge_verdict: "fail", faithfulness: 0.0, reasoning_score: 0.0, org_id: "00000000-0000-0000-0000-000000000000", created_at: "2026-04-07T07:52:25.813579+00:00", id: "c32e60ff-3cec-456f-8360-b69b2cbaacc4", hallucination_detected: TRUE}
+["DecisionTrace"], {trace_type: "output", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.95, created_at: "2026-04-07T07:52:25.838085+00:00", id: "33686086-b2f1-4895-8752-c8bff54babf4", label: "Output step"}
+["AgentRun"], {id: "d2a6fb32-66d5-4c47-b9af-a97ca3e26968", study_id: "00000000-0000-0000-0000-000000000003", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.193, created_at: "2026-04-07T07:53:16.158349+00:00", id: "d5619e94-0813-4bba-9b1f-044e45c5f68d", label: "Reasoning step"}
+["DecisionTrace"], {trace_type: "output", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.95, created_at: "2026-04-07T07:53:22.686261+00:00", id: "f86272d6-2dcc-4e11-b93a-0d05eee39bb0", label: "Output step"}
+["Score"], {judge_verdict: "pass", faithfulness: 0.8, reasoning_score: 0.7, org_id: "00000000-0000-0000-0000-000000000000", created_at: "2026-04-07T07:53:22.660209+00:00", id: "667df7a4-4ca3-43cb-9cde-6172127b5e9c", hallucination_detected: FALSE}
+["AgentRun"], {id: "f7082a88-28d8-4c70-94cf-f788c772834b", study_id: "00000000-0000-0000-0000-000000000003", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.193, created_at: "2026-04-07T07:53:43.218419+00:00", id: "63ea67f5-2f2d-49d4-bbe0-8671ecb83bc6", label: "Reasoning step"}
+["DecisionTrace"], {trace_type: "output", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.95, created_at: "2026-04-07T07:53:47.995888+00:00", id: "0315a851-c25c-43a0-8085-b23c30d24da7", label: "Output step"}
+["Score"], {judge_verdict: "pass", faithfulness: 0.9, reasoning_score: 0.8, org_id: "00000000-0000-0000-0000-000000000000", created_at: "2026-04-07T07:53:47.983217+00:00", id: "b9e57ce4-5017-41b4-8bb7-7cf2a3c44809", hallucination_detected: FALSE}
+["AgentRun"], {id: "382de187-fb3d-4263-a6f0-ba7d3717d9c1", study_id: "00000000-0000-0000-0000-000000000003", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.193, created_at: "2026-04-07T07:53:57.231413+00:00", id: "f096a8a0-4d4d-4e39-a240-3108fa0d167f", label: "Reasoning step"}
+["Score"], {judge_verdict: "pass", faithfulness: 0.7, reasoning_score: 0.8, org_id: "00000000-0000-0000-0000-000000000000", created_at: "2026-04-07T07:54:28.946994+00:00", id: "db6dc5ac-f431-4cdd-843c-3e9a79df60d6", hallucination_detected: FALSE}
+["DecisionTrace"], {trace_type: "output", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.95, created_at: "2026-04-07T07:54:28.963461+00:00", id: "5ee1dc9a-8871-4489-8a4f-8e7c06fba727", label: "Output step"}
+["Feedback"], {created_at: "2026-04-07T08:22:16.076922+00:00", submitted_by: "00000000-0000-0000-0000-000000000010", id: "235fe87e-05d5-414e-8fe0-7e2d15ea7a24", org_id: "00000000-0000-0000-0000-000000000000", feedback_type: "correction"}
+["AgentRun"], {id: "3b2cb949-4674-4da8-855c-07beb6e9be05", study_id: "00000000-0000-0000-0000-000000000003", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.193, created_at: "2026-04-07T08:22:21.641485+00:00", id: "c0a8dae2-37d8-4583-8cbc-010d37d6f818", label: "Reasoning step"}
+["DecisionTrace"], {trace_type: "output", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.95, created_at: "2026-04-07T08:23:13.058028+00:00", id: "b1829788-d0f1-4f7e-80db-2a30a801d6d9", label: "Output step"}
+["Score"], {judge_verdict: "pass", faithfulness: 0.8, reasoning_score: 0.7, org_id: "00000000-0000-0000-0000-000000000000", created_at: "2026-04-07T08:23:13.035698+00:00", id: "78fcd142-404a-457e-80ac-aee879985151", hallucination_detected: FALSE}
+["Feedback"], {created_at: "2026-04-07T08:45:09.382873+00:00", submitted_by: "00000000-0000-0000-0000-000000000010", id: "c494abf7-0065-476b-a4b9-13d3cfa27b56", org_id: "00000000-0000-0000-0000-000000000000", feedback_type: "correction"}
+["AgentRun"], {id: "78f98186-ebfc-4588-bbbd-00444c261571", study_id: "00000000-0000-0000-0000-000000000003", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.193, created_at: "2026-04-07T08:45:22.984709+00:00", id: "8c9d5eb7-2595-4648-a055-41433dfc4452", label: "Reasoning step"}
+["Score"], {judge_verdict: "pass", faithfulness: 0.8, reasoning_score: 0.7, org_id: "00000000-0000-0000-0000-000000000000", created_at: "2026-04-07T08:46:46.775931+00:00", id: "e8eaf724-27ac-400f-84af-d26a3db99caa", hallucination_detected: FALSE}
+["DecisionTrace"], {trace_type: "output", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.95, created_at: "2026-04-07T08:46:46.815704+00:00", id: "55e0e49b-d61b-4ce4-97bc-f3e4c0c79bdd", label: "Output step"}
+["AgentRun"], {id: "8e867e6d-1455-48dc-9cd2-71ecfb3e6639", study_id: "00000000-0000-0000-0000-000000000003", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.193, created_at: "2026-04-28T02:15:15.972851+00:00", id: "5b983aa4-9ae2-4039-b63f-6230aff5fde6", label: "Reasoning step"}
+["DecisionTrace"], {trace_type: "output", org_id: "00000000-0000-0000-0000-000000000000", confidence: 0.83, created_at: "2026-04-28T02:15:49.885287+00:00", id: "20c34b32-ec70-4098-b482-2c31d267fca8", label: "Output step"}
+["Score"], {judge_verdict: "partial", faithfulness: 0.5, reasoning_score: 0.7, org_id: "00000000-0000-0000-0000-000000000000", created_at: "2026-04-28T02:15:49.849971+00:00", id: "d9ce8b0f-f614-498f-92de-9370067d3d51", hallucination_detected: FALSE}
+["AgentRun"], {id: "523a8820-ae18-4051-ab56-28a79874cfbb", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T05:47:32.901461+00:00", id: "0e90c19f-b90f-419f-b82a-bf83224fc41c", label: "Reasoning step"}
+["AgentRun"], {id: "7c49e500-39c8-4c8f-846a-e12089e9defc", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T05:48:02.417689+00:00", id: "a5e14d58-c579-44bd-be69-5fadaeb1f01e", label: "Reasoning step"}
+["Score"], {judge_verdict: "pass", faithfulness: 0.9, reasoning_score: 0.8, org_id: "00000000-0000-0000-0000-000000000000", created_at: "2026-04-28T06:09:10.033848+00:00", id: "4ac5ac20-c503-48b1-98bc-28101b005293", hallucination_detected: FALSE}
+["Score"], {judge_verdict: "pass", faithfulness: 0.9, reasoning_score: 0.8, org_id: "00000000-0000-0000-0000-000000000000", created_at: "2026-04-28T06:11:52.799299+00:00", id: "43684f86-3bce-4007-97e9-65a2c7112566", hallucination_detected: FALSE}
+["AgentRun"], {id: "416083a9-2b82-4ab7-b3bc-c4ce5b2184c9", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T07:45:33.850028+00:00", id: "64d84730-1cc6-4fa3-b2a6-4ca3ecdb2d66", label: "Reasoning step"}
+["AgentRun"], {id: "a8c2717c-017f-4c9a-bd83-6ae082b8f04e", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T08:46:39.514359+00:00", id: "3e24b0c2-0979-4ad8-8603-af87f555fb41", label: "Reasoning step"}
+["AgentRun"], {id: "899daa9d-9a9d-4ee5-b3d8-565aab65be1b", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T09:08:46.055795+00:00", id: "49d863ea-70cc-444f-8a21-fe05e7e53bca", label: "Reasoning step"}
+["AgentRun"], {id: "07318132-1417-415b-949e-9bf1bb8c6562", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T09:39:35.135194+00:00", id: "4c2d243a-fbe8-4fae-bfea-d14b5daa5982", label: "Reasoning step"}
+["AgentRun"], {id: "212c361f-fca8-4ac8-b683-bcb7609b01a5", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T09:45:17.302356+00:00", id: "595fd336-ef1c-4dbe-8ca9-2b00b5ac231b", label: "Reasoning step"}
+["AgentRun"], {id: "e3662c50-ff58-4330-8e0c-0a38cc2cdadf", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T09:53:32.509790+00:00", id: "e3101af2-8097-4599-91f3-e9e667d85f29", label: "Reasoning step"}
+["AgentRun"], {id: "82f24b25-25c8-41d2-9a70-47242dd4f04e", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T09:54:55.686628+00:00", id: "0ffb3e0a-ee24-4115-89de-89444d8fc13c", label: "Reasoning step"}
+["AgentRun"], {id: "e9cffa21-f1ac-4960-a093-140284b2d42b", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T09:56:20.739236+00:00", id: "065270ee-1def-4aa4-9883-9b9fa57d38b7", label: "Reasoning step"}
+["AgentRun"], {id: "92b8fcfa-fad2-4ddd-b5fe-4ccb3aea74d9", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T10:00:19.072787+00:00", id: "7a9d3aa1-349f-485c-93b4-2a1c96c46c26", label: "Reasoning step"}
+["AgentRun"], {id: "cc3615a2-9562-414a-bb2d-7a519584f07b", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T10:01:30.674671+00:00", id: "164d3de5-3548-470b-b743-b14cb4825109", label: "Reasoning step"}
+["AgentRun"], {id: "e7b10969-cd96-4ce9-b45a-7084d0bf15c6", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T10:02:34.121288+00:00", id: "23aaf049-d7cd-4557-9cf9-a6ab997f1859", label: "Reasoning step"}
+["AgentRun"], {id: "478e3b9b-92eb-49a5-b549-3873e5b7360e", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T10:03:43.684453+00:00", id: "725d1b79-f9a0-48f2-9391-3109f60f5e1b", label: "Reasoning step"}
+["AgentRun"], {id: "16f5bbe9-441e-4309-ab3d-49f0863e4956", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T10:04:53.219388+00:00", id: "35c30cc9-3868-48f0-a0f6-449753218715", label: "Reasoning step"}
+["AgentRun"], {id: "aec5c912-7081-4cf8-b02e-e034e8b59cb2", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T10:05:56.310168+00:00", id: "7e9bd7da-ceb5-4e46-b1e3-5d2afe8b6fb3", label: "Reasoning step"}
+["AgentRun"], {id: "c1899705-1f6f-4d67-ae65-cad66c942c12", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T10:06:56.258528+00:00", id: "cd8b2371-8600-4239-820c-f26e33dbe6a3", label: "Reasoning step"}
+["AgentRun"], {id: "55e48dd2-2e52-490b-91e1-a3dfae1f6043", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T10:30:50.061137+00:00", id: "7aaa6613-0cf9-4e3e-899f-d37ec5be84d7", label: "Reasoning step"}
+["AgentRun"], {id: "e179c673-9fc1-4053-b0b1-14bbd913f4ac", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T10:33:26.676292+00:00", id: "b354ecc4-8cc6-4a9e-9c3e-fa8d15beaec1", label: "Reasoning step"}
+["AgentRun"], {id: "802f031c-c69e-4a53-8293-d9056d81baf7", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T10:35:52.463492+00:00", id: "f673d669-0e55-4771-a7e5-d5b7ed4fa92c", label: "Reasoning step"}
+["AgentRun"], {id: "8d51c3c1-ebe7-41f9-83af-c4775ab85457", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T10:44:54.313644+00:00", id: "483a0930-b238-4f83-aacd-b49e2bbad405", label: "Reasoning step"}
+["AgentRun"], {id: "e00f270d-fb70-4f85-ba1d-4e3ed4a4119d", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T11:00:32.346703+00:00", id: "438384e3-ea5d-47dc-80a9-80466cf08104", label: "Reasoning step"}
+["AgentRun"], {id: "63dee63e-5791-48ce-af83-24526ec85fea", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T11:04:15.964778+00:00", id: "230d3ac1-36ba-44eb-8e3e-5f401575a536", label: "Reasoning step"}
+["AgentRun"], {id: "00eab934-8651-4c6f-87d4-10b63f91c9e3", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T11:06:03.867290+00:00", id: "3f4255ec-f1b6-4a57-a504-2b1abc82347f", label: "Reasoning step"}
+["AgentRun"], {id: "aa711a83-2d6b-4d43-b1cc-816de1bd5ee3", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T11:07:04.003706+00:00", id: "e377e764-e2f4-4d04-9a23-958d6b7a021a", label: "Reasoning step"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T11:26:12.580186+00:00", id: "71c59eab-35f9-4cfd-bf83-549cf13c7a10", label: "Reasoning step"}
+["AgentRun"], {id: "8d0e64af-607e-4110-8090-497a93ef302c", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T11:40:59.424086+00:00", id: "fd5c8c3a-9a92-4b2b-afa1-8226deb5bc72", label: "Reasoning step"}
+["AgentRun"], {id: "84fcebd6-f2a8-4b53-89bf-491dcb1d4310", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T11:44:25.776082+00:00", id: "85cbf472-6425-4d3c-8011-dd2ffc2ab5da", label: "Reasoning step"}
+["AgentRun"], {id: "346d6f87-795e-4a3e-b712-f609906cf110", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T11:51:42.804633+00:00", id: "6ed6c268-f9cf-440c-a881-b721501f0279", label: "Reasoning step"}
+["AgentRun"], {id: "bec246e6-7dd7-4669-a115-a74442a68e08", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T11:59:15.455394+00:00", id: "f7be41c4-0867-4acc-a2a5-ee3ad000d224", label: "Reasoning step"}
+["AgentRun"], {id: "fe71ed53-04ee-4fda-99b3-ab6ccaad5ab5", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T12:04:15.088464+00:00", id: "a4993e08-869a-4833-8db8-70c054de32ca", label: "Reasoning step"}
+["AgentRun"], {id: "79ab3c08-e8ae-4678-a592-ed78a436702a", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T12:33:20.367105+00:00", id: "2a752782-a54b-498d-9318-8b3ca3e6ef05", label: "Reasoning step"}
+["AgentRun"], {id: "965d9b66-88f5-41b2-b348-772f49c2f8b9", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T13:18:54.645015+00:00", id: "35705d3b-7d88-4c03-801c-0d00e68d365c", label: "Reasoning step"}
+["AgentRun"], {id: "7f8f19e4-54d0-4390-b8b0-435288c45e82", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-28T16:19:25.295041+00:00", id: "0e5ac07d-31e3-4a50-b663-ccff0c84269d", label: "Reasoning step"}
+["AgentRun"], {id: "ab0b6abb-7918-4094-b687-78624f8601f4", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T06:35:57.431812+00:00", id: "a7707251-efa9-460c-94a2-66b132edca20", label: "Reasoning step"}
+["AgentRun"], {id: "75cb7c21-1086-4c37-b313-61219e635579", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T07:40:24.144514+00:00", id: "9b7e4fe3-891e-4e2b-8b58-6197372ea0f0", label: "Reasoning step"}
+["AgentRun"], {id: "b337cabf-0b7c-4ec4-8148-74d9daddb9cf", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T08:47:56.124936+00:00", id: "6858eab1-63e8-404c-a338-1d06232dd9fc", label: "Reasoning step"}
+["AgentRun"], {id: "6a0efc87-624d-46d8-a66e-de35b0436803", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T09:02:29.771779+00:00", id: "59f1d630-e1ed-43a9-9b96-a09d4dd1eb69", label: "Reasoning step"}
+["AgentRun"], {id: "dc51277e-1227-4a1d-bc92-f9d4798f66d0", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T09:44:54.239502+00:00", id: "6aca78e3-04a2-43ba-b965-21b9e12db662", label: "Reasoning step"}
+["AgentRun"], {id: "d0d74926-282c-47df-b10c-b507d3f821e6", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T10:18:02.183117+00:00", id: "8258db58-d00c-447f-a8cc-b1ed7e8d221d", label: "Reasoning step"}
+["AgentRun"], {id: "c8d88c5d-b02e-491d-acfd-e2398fe0e12d", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T11:32:01.795754+00:00", id: "7f29d553-4540-4a22-9d6e-8609fb684c1c", label: "Reasoning step"}
+["Score"], {judge_verdict: "pass", faithfulness: 0.9, reasoning_score: 0.8, org_id: "00000000-0000-0000-0000-000000000000", created_at: "2026-04-29T12:18:08.170951+00:00", id: "6c257817-487f-4bd5-8a4b-cc9262c32e63", hallucination_detected: FALSE}
+["AgentRun"], {id: "eca3f536-2e71-418d-a0a3-2d7c5d3f6a45", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T12:44:53.827683+00:00", id: "9ee2dbf4-47f6-4846-ab80-b0129d11d3be", label: "Reasoning step"}
+["Score"], {judge_verdict: "pass", faithfulness: 0.9, reasoning_score: 0.8, org_id: "00000000-0000-0000-0000-000000000000", created_at: "2026-04-29T12:51:18.943089+00:00", id: "88924bd2-a54f-4770-bd1c-f56335dbe58e", hallucination_detected: FALSE}
+["AgentRun"], {id: "07898c27-650e-4b4e-ae6a-7aaaff2d3a28", study_id: "7333b031-ddc8-4eed-82ce-4d5c6cfded3c", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T14:13:04.090956+00:00", id: "71bbfe2f-e37d-4d4f-aa5a-2e459cf0b83e", label: "Reasoning step"}
+["AgentRun"], {id: "f84c2684-2c9f-4948-973a-7bf33ae8b261", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T15:54:32.715672+00:00", id: "66f03000-b3ee-4178-b499-250ce1a5c4ae", label: "Reasoning step"}
+["AgentRun"], {id: "5fd94f6a-2d14-456c-b085-c812939b3397", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T15:57:27.082010+00:00", id: "3be171a4-d82e-4758-bfd8-7ad53f4ef630", label: "Reasoning step"}
+["AgentRun"], {id: "9420fd3e-f73a-4cbe-9ee9-8c5d5e2a840b", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T15:58:37.314138+00:00", id: "00ea4d67-16cd-409c-9fab-841ef437276d", label: "Reasoning step"}
+["AgentRun"], {id: "779a1cab-86cb-4136-be96-f6962f635557", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T16:39:40.566174+00:00", id: "03b3f051-8e48-4b9e-8c6e-9f3145e9e5ce", label: "Reasoning step"}
+["AgentRun"], {id: "8e8162db-8e20-490c-8273-9e63b6cc0d14", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T16:41:45.490569+00:00", id: "f4835b44-2974-45df-a291-efe1d6941ec9", label: "Reasoning step"}
+["AgentRun"], {id: "1fb1b21b-b471-44c8-b0f1-378cc4d6aa82", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T16:53:46.954871+00:00", id: "82284175-2506-4737-a3d0-685bf4514945", label: "Reasoning step"}
+["AgentRun"], {id: "08a70878-7f2e-41b4-b681-0290a4fd9b1e", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T17:18:02.869218+00:00", id: "eb078f4a-288e-4827-a63c-f41f5a08f160", label: "Reasoning step"}
+["AgentRun"], {id: "38727665-87ae-4530-ac7a-4492930cd5ec", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T17:35:17.480179+00:00", id: "24548480-16da-453e-81ef-c734aad0e020", label: "Reasoning step"}
+["AgentRun"], {id: "82a5943c-f341-4b2d-9a1c-217c9b30ff25", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T17:53:26.989261+00:00", id: "285861f9-1551-4994-9bcc-dce83e410d92", label: "Reasoning step"}
+["AgentRun"], {id: "207aa5f2-fa3b-4714-849f-2d71a58e3d80", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T18:09:07.702659+00:00", id: "2bb18c04-c53b-4a1d-8209-f348b667021a", label: "Reasoning step"}
+["AgentRun"], {id: "c33b8fd4-a300-4a74-a5e2-f7cde2c03590", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T18:45:27.347799+00:00", id: "89d39840-c6d4-485e-8026-7bbd0cb871f8", label: "Reasoning step"}
+["AgentRun"], {id: "55320e78-e391-4918-95ab-9d23716c42b5", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T18:54:11.812982+00:00", id: "24f2c863-d862-4c88-a11c-547f700d5402", label: "Reasoning step"}
+["AgentRun"], {id: "590bc120-02d7-4900-b040-e3a4feb2a8e2", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T19:00:03.547628+00:00", id: "34070b1d-6a8e-4911-876f-e851f3eefe9d", label: "Reasoning step"}
+["AgentRun"], {id: "06139989-8416-4faf-a003-662fae8cc677", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T19:02:21.755973+00:00", id: "d66825e8-85b0-4ab7-9bbf-8a63dbcb1b92", label: "Reasoning step"}
+["AgentRun"], {id: "cce23fc1-de4c-4055-a3a6-8d1e1217868e", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T19:07:17.745931+00:00", id: "6c4052b4-3fce-4ef0-b3cb-8570bc3280fb", label: "Reasoning step"}
+["AgentRun"], {id: "e2d13475-799e-44b7-bfe5-1cd20230784e", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T19:10:35.789640+00:00", id: "db054a46-8060-4e7a-a3c8-98d74be51253", label: "Reasoning step"}
+["AgentRun"], {id: "5faeb47b-f2d5-4780-a9d3-d353ed973101", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T19:19:48.076851+00:00", id: "a4141234-2017-4da8-b50b-e74aaae145fd", label: "Reasoning step"}
+["AgentRun"], {id: "3c44f5ec-7498-4b39-a880-b5545c5236c7", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T19:51:43.211089+00:00", id: "78208371-b0eb-4b33-b640-e16aa9e0e50b", label: "Reasoning step"}
+["AgentRun"], {id: "d5c2bf65-d418-4147-b3a2-b22db5e863bb", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T19:55:22.562226+00:00", id: "2cf24757-2bed-4471-bbc9-92011d711806", label: "Reasoning step"}
+["AgentRun"], {id: "47cda52e-f720-4827-bddb-60937bea4390", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T19:59:17.439345+00:00", id: "1bab66ef-3206-4e76-aed5-8872f58857c0", label: "Reasoning step"}
+["AgentRun"], {id: "806638df-7447-46b6-b252-2c2fc8b1fc2c", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-29T20:23:30.971579+00:00", id: "7c450086-70f1-429a-aeaf-413fe98363ab", label: "Reasoning step"}
+["AgentRun"], {id: "76e63537-310c-4b35-994b-bfd3bcbd84c2", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-30T01:54:49.401351+00:00", id: "e602c798-b96e-4781-a450-a1dc45068570", label: "Reasoning step"}
+["AgentRun"], {id: "491a4aec-f519-46bb-8516-2250dfc3aac7", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-30T02:02:15.155956+00:00", id: "c64e9f04-3b60-46ae-84b7-10a737650984", label: "Reasoning step"}
+["AgentRun"], {id: "c20d7c4a-7f8c-476c-9934-94214e9a3047", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-30T02:16:53.591090+00:00", id: "918c9611-8f12-4ead-9af8-3f394fa7ec5f", label: "Reasoning step"}
+["Score"], {judge_verdict: "pass", faithfulness: 0.8, reasoning_score: 0.7, org_id: "00000000-0000-0000-0000-000000000000", created_at: "2026-04-30T02:29:53.480401+00:00", id: "138001f5-f829-4b66-9569-08762facf65e", hallucination_detected: FALSE}
+["AgentRun"], {id: "6867541e-a398-403f-90b6-1719f8082889", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-30T02:33:26.320402+00:00", id: "17d96842-5fc6-4c9e-81a8-8690e3227830", label: "Reasoning step"}
+["AgentRun"], {id: "b47fc27c-0dc3-4a87-9b6f-8a96df85b7b2", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-30T02:51:56.290538+00:00", id: "98bc9f02-e42a-4d32-a47f-ebde99fe9777", label: "Reasoning step"}
+["AgentRun"], {id: "e81bc427-e129-457c-95f3-b1486365366d", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-30T03:46:40.225099+00:00", id: "a765a117-8285-4ea6-a910-4b9ca5858033", label: "Reasoning step"}
+["AgentRun"], {id: "4764b686-b4e4-4d64-a02b-e910d3ddb93b", study_id: "02f41a24-912f-409f-8dfe-9e0fb5b5a8b7", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-30T04:31:34.051631+00:00", id: "3f7bbfcd-e792-49c2-8acb-6a3ba85e77ea", label: "Reasoning step"}
+["AgentRun"], {id: "35a6612a-013d-4d0e-a0b5-9fb00081c161", study_id: "2250582f-2778-46b1-ae9d-98ddbabc1735", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-04-30T06:05:12.294342+00:00", id: "5421e252-11e2-4b64-bc8f-795318518698", label: "Reasoning step"}
+["AgentRun"], {id: "03e57e02-e1b5-48d0-8bae-84413abc0cac", study_id: "2250582f-2778-46b1-ae9d-98ddbabc1735", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-05-03T17:36:34.761262+00:00", id: "f8640a8b-8d55-4119-9095-5ac9f3680719", label: "Reasoning step"}
+["AgentRun"], {id: "96ab6544-9f06-4996-9bf1-cf0aac6e5336", study_id: "2250582f-2778-46b1-ae9d-98ddbabc1735", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-05-03T17:50:29.450466+00:00", id: "cb3432ec-1bdf-4cf9-943f-f3776e6a3ee7", label: "Reasoning step"}
+["AgentRun"], {id: "19a8231c-a642-466d-8890-ce78169797bc", study_id: "2250582f-2778-46b1-ae9d-98ddbabc1735", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-05-03T17:54:15.427200+00:00", id: "14a901a6-758d-49e0-b402-69669f298141", label: "Reasoning step"}
+["AgentRun"], {id: "30121429-025a-442e-92be-b8bc0b43ab2b", study_id: "2250582f-2778-46b1-ae9d-98ddbabc1735", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-05-03T17:58:17.696924+00:00", id: "68188f90-1a6b-4e9a-b8d6-101a9f7c9c9e", label: "Reasoning step"}
+["AgentRun"], {id: "67250a04-2cca-4edf-8ebe-54f3773b756c", study_id: "2250582f-2778-46b1-ae9d-98ddbabc1735", org_id: "00000000-0000-0000-0000-000000000000"}
+["DecisionTrace"], {trace_type: "reasoning", org_id: "00000000-0000-0000-0000-000000000000", confidence: 1.0, created_at: "2026-05-03T18:00:41.622538+00:00", id: "a7833084-6c83-4e05-8efb-19d6abcb71fd", label: "Reasoning step"}

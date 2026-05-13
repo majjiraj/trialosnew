@@ -12,10 +12,17 @@ services:
     volumes:
       - postgres_data:/var/lib/postgresql/data
       - ./infrastructure/scripts/init-db.sql:/docker-entrypoint-initdb.d/init.sql
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U trialo -d trialo"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 10s
 
   minio:
     image: minio/minio:latest
     command: server /data --console-address ":9001"
+    restart: unless-stopped
     environment:
       MINIO_ROOT_USER: trialo
       MINIO_ROOT_PASSWORD: trialo_dev_secret
@@ -35,7 +42,7 @@ services:
       KAFKA_CONTROLLER_LISTENER_NAMES: CONTROLLER
       KAFKA_CONTROLLER_QUORUM_VOTERS: 1@kafka:9093
       KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
-      KAFKA_CLUSTER_ID: trialo-dev-cluster
+      CLUSTER_ID: e2VvWK7DQnKyDstaMngJUQ
     ports:
       - "9092:9092"
 
@@ -113,6 +120,7 @@ services:
       - NEO4J_URL=bolt://neo4j:7687
       - NEO4J_USERNAME=neo4j
       - NEO4J_PASSWORD=trialo_dev
+      - STANDARDS_REGISTRY_URL=http://standards-registry:8012
     depends_on:
       - postgres
       - kafka
@@ -166,6 +174,12 @@ services:
       - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
       - OLLAMA_BASE_URL=http://host.docker.internal:11434
       - OLLAMA_MODEL=gemma:latest
+      # LLM provider for USDM generation: "ollama" (default) or "bedrock"
+      - LLM_PROVIDER=${LLM_PROVIDER:-ollama}
+      - BEDROCK_MODEL_ID=${BEDROCK_MODEL_ID:-us.anthropic.claude-sonnet-4-5-20250929-v1:0}
+      - AWS_REGION=${AWS_REGION:-us-east-1}
+      - AWS_ACCESS_KEY_ID=${AWS_ACCESS_KEY_ID:-}
+      - AWS_SECRET_ACCESS_KEY=${AWS_SECRET_ACCESS_KEY:-}
       - EMBEDDING_PROVIDER=ollama
       - EMBEDDING_MODEL=nomic-embed-text
       - EMBEDDING_DIM=768
@@ -177,6 +191,11 @@ services:
       - S3_BUCKET_ARTIFACTS=trialo-artifacts
       - NOTIFICATION_SERVICE_URL=http://notification-service:8006
       - CONTEXT_GRAPH_URL=http://context-graph:8008
+      - STANDARDS_REGISTRY_URL=http://standards-registry:8012
+      - STUDY_GRAPH_URL=http://study-graph:8013
+      - MEMORY_ENGINE_URL=http://memory-engine:8014
+      - SUPER_AGENT_URL=http://super-agent:8015
+      - QUALITY_SERVICE_URL=http://quality-service:8016
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
       - AZURE_OPENAI_API_KEY=${AZURE_OPENAI_API_KEY:-}
@@ -184,10 +203,26 @@ services:
       - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
       - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
       - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse:3000}
+      - PROTOCOL_USDM_V3_URL=http://protocol-usdm-v3:8000
+      - PROTOCOL_USDM_V3_API_KEY=${PROTOCOL_USDM_V3_API_KEY:-trialo-internal}
+      - USE_PROTOCOL_USDM_V3=${USE_PROTOCOL_USDM_V3:-true}
     depends_on:
       - postgres
       - kafka
       - context-graph
+      - protocol-usdm-v3
+
+  data-platform:
+    build:
+      context: ./services
+      dockerfile: data-platform/Dockerfile
+    ports:
+      - "8007:8007"
+    environment:
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - S3_ENDPOINT=http://minio:9000
+    depends_on:
+      - postgres
 
   marketplace:
     build:
@@ -364,11 +399,140 @@ services:
       - agent-runtime
       - form-engine
 
+  # ── Maxis AI Context Layer Services ───────────────────────────────────────
+
+  standards-registry:
+    build:
+      context: ./services
+      dockerfile: standards-registry/Dockerfile
+    ports:
+      - "8012:8012"
+    environment:
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - EMBEDDING_MODEL=nomic-embed-text
+      - EMBEDDING_DIM=768
+      - KAFKA_BROKERS=kafka:9092
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+
+  quality-service:
+    build:
+      context: ./services/quality-service
+      dockerfile: Dockerfile
+    ports:
+      - "8016:8016"
+    environment:
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/quality_db
+      - SERVICE_PORT=8016
+      - LOG_LEVEL=INFO
+    depends_on:
+      postgres:
+        condition: service_healthy
+    restart: unless-stopped
+
+  study-graph:
+    build:
+      context: ./services
+      dockerfile: study-graph/Dockerfile
+    ports:
+      - "8013:8013"
+    environment:
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - NEO4J_URL=bolt://neo4j:7687
+      - NEO4J_USERNAME=neo4j
+      - NEO4J_PASSWORD=trialo_dev
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - EMBEDDING_MODEL=nomic-embed-text
+      - EMBEDDING_DIM=768
+      - KAFKA_BROKERS=kafka:9092
+      - CONTEXT_GRAPH_URL=http://context-graph:8008
+      - STANDARDS_REGISTRY_URL=http://standards-registry:8012
+    depends_on:
+      - postgres
+      - neo4j
+      - redis
+      - kafka
+      - standards-registry
+
+  memory-engine:
+    build:
+      context: ./services
+      dockerfile: memory-engine/Dockerfile
+    ports:
+      - "8014:8014"
+    environment:
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - REDIS_URL=redis://redis:6379
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - EMBEDDING_MODEL=nomic-embed-text
+      - EMBEDDING_DIM=768
+      - KAFKA_BROKERS=kafka:9092
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+
+  protocol-usdm-v3:
+    build:
+      context: ./services/protocol-usdm-v3
+      dockerfile: Dockerfile
+    ports:
+      - "8020:8000"
+    environment:
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
+      - USDM_API_KEY=${PROTOCOL_USDM_V3_API_KEY:-trialo-internal}
+    restart: unless-stopped
+    volumes:
+      - protocol_usdm_v3_jobs:/app/jobs
+
+  super-agent:
+    build:
+      context: ./services
+      dockerfile: super-agent/Dockerfile
+    ports:
+      - "8015:8015"
+    environment:
+      - DATABASE_URL=postgresql://trialo:trialo_dev@postgres:5432/trialo
+      - REDIS_URL=redis://redis:6379
+      - KAFKA_BROKERS=kafka:9092
+      - AGENT_RUNTIME_URL=http://agent-runtime:8004
+      - MEMORY_ENGINE_URL=http://memory-engine:8014
+      - STANDARDS_REGISTRY_URL=http://standards-registry:8012
+      - STUDY_GRAPH_URL=http://study-graph:8013
+      - CONTEXT_GRAPH_URL=http://context-graph:8008
+      - OLLAMA_BASE_URL=http://host.docker.internal:11434
+      - OLLAMA_MODEL=gemma:latest
+      - OPENAI_API_KEY=${OPENAI_API_KEY:-}
+      - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY:-}
+      - ZEEBE_ADDRESS=zeebe:26500
+      - LANGFUSE_PUBLIC_KEY=${LANGFUSE_PUBLIC_KEY:-}
+      - LANGFUSE_SECRET_KEY=${LANGFUSE_SECRET_KEY:-}
+      - LANGFUSE_HOST=${LANGFUSE_HOST:-http://langfuse:3000}
+    depends_on:
+      - postgres
+      - redis
+      - kafka
+      - agent-runtime
+      - memory-engine
+      - standards-registry
+      - study-graph
+
   frontend:
     build: ./frontend
     ports:
       - "3000:3000"
+    volumes:
+      - ./frontend:/app
+      - frontend_node_modules:/app/node_modules
+      - frontend_next:/app/.next
+    command: npm run dev
     environment:
+      - NODE_ENV=development
       - NEXT_PUBLIC_GRAPHQL_URL=http://localhost:4000/graphql
       - NEXT_PUBLIC_AUTH0_DOMAIN=${AUTH0_DOMAIN}
       - NEXT_PUBLIC_AUTH0_CLIENT_ID=${AUTH0_CLIENT_ID}
@@ -377,6 +541,11 @@ services:
       - NEXT_PUBLIC_APP_COMPOSER_URL=http://localhost:8009
       - NEXT_PUBLIC_FORM_ENGINE_URL=http://localhost:8010
       - NEXT_PUBLIC_WORKFLOW_BRIDGE_URL=http://localhost:8011
+      - NEXT_PUBLIC_DATA_PLATFORM_URL=http://localhost:8007
+      - NEXT_PUBLIC_STANDARDS_REGISTRY_URL=http://localhost:8012
+      - NEXT_PUBLIC_STUDY_GRAPH_URL=http://localhost:8013
+      - NEXT_PUBLIC_MEMORY_ENGINE_URL=http://localhost:8014
+      - NEXT_PUBLIC_SUPER_AGENT_URL=http://localhost:8015
     depends_on:
       - graphql-api
 
@@ -384,6 +553,9 @@ volumes:
   postgres_data:
   minio_data:
   mongo_data:
+  frontend_node_modules:
+  frontend_next:
   zeebe_data:
   es_data:
   neo4j_data:
+  protocol_usdm_v3_jobs:

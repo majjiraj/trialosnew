@@ -88,6 +88,15 @@ interface DocIntelligence {
     chunk_index: number; page_number: number; section: string
     caption: string; image_url: string
   }>
+  extracted_files: Array<{
+    document_id: string; file_name: string; name: string
+    document_type: string; file_size_bytes: number
+    created_at: string | null
+    domain: string | null
+    row_count: number | null
+    unique_subjects: number | null
+    unique_sites: number | null
+  }>
   graph_summary: {
     entity_breakdown: Array<{ type: string; count: number }>
     edge_breakdown: Array<{ type: string; count: number }>
@@ -449,7 +458,9 @@ const DOC_TYPE_LABELS: Record<string, string> = {
   csr: 'Clinical Study Report', sdtm_ig: 'SDTM Implementation Guide',
   adam_ig: 'ADaM Implementation Guide', lab_manual: 'Lab Manual',
   lab_report: 'Lab Report', study_budget: 'Study Budget',
-  dmp: 'Data Management Plan', icf: 'Informed Consent Form', other: 'Other',
+  dmp: 'Data Management Plan', icf: 'Informed Consent Form',
+  ich_guideline: 'ICH Guideline', controlled_terminology: 'Controlled Terminology',
+  other: 'Other',
 }
 
 const ENTITY_COLORS: Record<string, string> = {
@@ -664,6 +675,54 @@ function StatisticsTab({ intel }: { intel: DocIntelligence }) {
 
       {/* Chunking strategy */}
       <ChunkStrategyCard cs={cs} />
+
+      {/* Extracted domain files */}
+      {intel.extracted_files && intel.extracted_files.length > 0 && (
+        <div className="card p-4 space-y-3">
+          <div className="flex items-center gap-2 mb-3">
+            <Database className="w-4 h-4 text-slate-600" />
+            <h3 className="text-sm font-semibold text-slate-700">Extracted Domain Files</h3>
+            <span className="text-xs bg-slate-100 text-slate-600 px-2 py-0.5 rounded-full">
+              {intel.extracted_files.length}
+            </span>
+          </div>
+          <div className="divide-y divide-slate-100">
+            {intel.extracted_files.map((f) => (
+              <div key={f.document_id} className="py-2.5 flex items-center justify-between">
+                <div className="flex-1 min-w-0">
+                  <p className="text-sm font-medium text-slate-900 truncate">
+                    {f.file_name || f.name}
+                  </p>
+                  <div className="flex items-center gap-3 mt-1.5 text-xs text-slate-500 flex-wrap">
+                    {f.domain && (
+                      <span className="bg-slate-100 text-slate-700 px-2 py-1 rounded">
+                        Domain: {f.domain}
+                      </span>
+                    )}
+                    {f.row_count !== null && f.row_count !== undefined && (
+                      <span className="flex items-center gap-1">
+                        <AlignLeft className="w-3 h-3" />
+                        {f.row_count.toLocaleString()} rows
+                      </span>
+                    )}
+                    {f.unique_subjects && (
+                      <span className="flex items-center gap-1">
+                        <Tag className="w-3 h-3" />
+                        {f.unique_subjects} subjects
+                      </span>
+                    )}
+                    {f.file_size_bytes && (
+                      <span className="text-slate-400">
+                        {(f.file_size_bytes / 1024).toLocaleString('en', { maximumFractionDigits: 1 })} KB
+                      </span>
+                    )}
+                  </div>
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -833,11 +892,20 @@ function ContentTab({ intel }: { intel: DocIntelligence }) {
                 onClick={() => setImageIdx(i)}
                 className="text-left group rounded-lg overflow-hidden border border-slate-200 hover:border-brand-300 transition-colors"
               >
-                <img
-                  src={img.image_url}
-                  alt={img.caption || `Image p.${img.page_number}`}
-                  className="w-full aspect-video object-cover bg-slate-100"
-                />
+                {img.image_url ? (
+                  <img
+                    src={img.image_url}
+                    alt={img.caption || `Image p.${img.page_number}`}
+                    className="w-full aspect-video object-cover bg-slate-100"
+                  />
+                ) : (
+                  <div className="w-full aspect-video bg-slate-100 flex items-center justify-center">
+                    <div className="text-center text-slate-500">
+                      <ImageIcon className="w-5 h-5 mx-auto mb-1" />
+                      <p className="text-[11px]">Figure extracted</p>
+                    </div>
+                  </div>
+                )}
                 <div className="p-2">
                   <p className="text-[11px] text-slate-500">p.{img.page_number}{img.section ? ` · ${img.section}` : ''}</p>
                 </div>
@@ -894,11 +962,20 @@ function ContentTab({ intel }: { intel: DocIntelligence }) {
                 <ChevronRight className="w-6 h-6" />
               </button>
             )}
-            <img
-              src={intel.images[imageIdx].image_url}
-              alt={intel.images[imageIdx].caption || `Image ${imageIdx + 1}`}
-              className="max-h-[70vh] w-auto rounded-lg object-contain"
-            />
+            {intel.images[imageIdx].image_url ? (
+              <img
+                src={intel.images[imageIdx].image_url}
+                alt={intel.images[imageIdx].caption || `Image ${imageIdx + 1}`}
+                className="max-h-[70vh] w-auto rounded-lg object-contain"
+              />
+            ) : (
+              <div className="max-h-[70vh] w-full max-w-2xl rounded-lg bg-slate-800 border border-slate-700 py-16 flex items-center justify-center">
+                <div className="text-center text-slate-200">
+                  <ImageIcon className="w-8 h-8 mx-auto mb-2" />
+                  <p className="text-sm">Figure extracted without image asset URL</p>
+                </div>
+              </div>
+            )}
             <div className="mt-3 text-center text-white">
               {intel.images[imageIdx].caption && (
                 <p className="text-sm">{intel.images[imageIdx].caption}</p>
@@ -1159,9 +1236,14 @@ export function DocumentGraphModal({
     const logs = intel?.processing_logs ?? []
     const lastLog = logs.at(-1)
     const finalSteps = new Set(['indexing', 'xpt_graph'])
-    const isDone = lastLog && lastLog.event === 'completed' && finalSteps.has(lastLog.step)
     const hasChunks = (intel?.chunk_stats.total ?? 0) > 0
-    const isProcessing = intel && hasChunks && !isDone
+    const fullyEmbedded =
+      hasChunks &&
+      (intel?.chunk_stats.embedded ?? 0) >= (intel?.chunk_stats.total ?? 0)
+    const isDoneByLogs = !!(lastLog && lastLog.event === 'completed' && finalSteps.has(lastLog.step))
+    const isDoneByStatus = intel?.document.status === 'indexed'
+    const isDone = isDoneByLogs || isDoneByStatus || fullyEmbedded
+    const isProcessing = !!intel && hasChunks && !isDone
     if (!isProcessing) return
     const id = setInterval(fetchIntel, 15000)
     return () => clearInterval(id)
@@ -1224,7 +1306,13 @@ export function DocumentGraphModal({
             const logs = intel.processing_logs
             const lastLog = logs.at(-1)
             const finalSteps = new Set(['indexing', 'xpt_graph'])
-            const isDone = lastLog && lastLog.event === 'completed' && finalSteps.has(lastLog.step)
+            const hasChunks = (intel.chunk_stats.total ?? 0) > 0
+            const fullyEmbedded =
+              hasChunks &&
+              (intel.chunk_stats.embedded ?? 0) >= (intel.chunk_stats.total ?? 0)
+            const isDoneByLogs = !!(lastLog && lastLog.event === 'completed' && finalSteps.has(lastLog.step))
+            const isDoneByStatus = intel.document.status === 'indexed'
+            const isDone = isDoneByLogs || isDoneByStatus || fullyEmbedded
             const activeLog = !isDone && logs.filter(l => l.event === 'started' || l.event === 'progress').at(-1)
             return activeLog ? (
               <span className="flex items-center gap-1 text-[11px] text-blue-600 bg-blue-50 border border-blue-200 px-2 py-1 rounded-full flex-shrink-0">

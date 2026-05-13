@@ -1,13 +1,28 @@
 """
-SDTMConformanceChecker — TrialOS Native Agent v1.0.0
+SDTMConformanceChecker — TrialOS Native Agent v1.1.0
 Runs CDISC SDTM conformance checks across all study domains.
 Generates findings report with severity levels (ERROR/WARNING).
 Equivalent to Pinnacle 21 Community checks.
+
+Platform features:
+  • Dynamic Retrieval Augmentation  — SDTMIG domain-chapter and rule-specific
+                                       queries injected before per-domain checks
+  • Confidence-Based Execution      — alert threshold gated on conformance
+    Branching                          confidence score (evidence quality)
+  • Validation Escalation           — SD0001/SD0037/non-IG findings promoted
+                                       to blocking errors via policy v1
+  • Contextual Prompt Injection     — DM notifications enriched with prior
+    for HITL                           conformance reviewer feedback history
 """
 import sys, os
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "../../packages/trialo-agent-sdk"))
 
-from trialo_agent_sdk import BaseAgent, AgentContext, AgentOutput
+from trialo_agent_sdk import (
+    BaseAgent, AgentContext, AgentOutput,
+    escalate_findings, is_blocked_by_escalation, escalation_summary,
+    build_hitl_context, build_hitl_notification_body,
+    compute_agent_confidence, branch_on_confidence,
+)
 from datetime import datetime, timezone
 from collections import defaultdict
 
@@ -43,43 +58,104 @@ CONTROLLED_TERMS = {
 class SDTMConformanceChecker(BaseAgent):
 
     AGENT_NAME = "SDTM Conformance Checker"
-    AGENT_VERSION = "1.0.0"
-    REQUIRED_PERMISSIONS = ["study:data:read", "study:validation:read", "study:reports:write"]
+    AGENT_VERSION = "1.1.0"
+    REQUIRED_PERMISSIONS = ["study:data:read", "study:validation:read", "study:reports:write", "study:notifications:write"]
     DECLARED_TOOLS = ["read_sdtm_domain", "check_cdisc_conformance", "generate_pdf_report", "send_notification"]
 
     async def run(self, context: AgentContext) -> AgentOutput:
         all_findings: dict[str, list[dict]] = {}
+        all_findings_flat: list[dict] = []
         total_errors = 0
         total_warnings = 0
         domains_checked = []
+
+        # ── Feature 1: Dynamic Retrieval Augmentation ─────────────────────
+        # Pull SDTMIG domain chapters + key rule definitions before checking
+        if "study:docs:read" in context.consented_permissions:
+            try:
+                await self.augmented_conformance_search(
+                    "CDISC SDTM conformance required variables controlled terminology",
+                    domains=SDTM_DOMAINS,
+                    rule_ids=["SD0001", "SD0037", "SD0006"],
+                    top_k=8,
+                )
+            except Exception:
+                pass  # non-fatal; conformance checks run on data without reference docs
 
         for domain in SDTM_DOMAINS:
             records = await context.data_client.read_sdtm_domain(domain)
             if not records:
                 continue
-
             domains_checked.append(domain)
             findings = self._check_domain(domain, records)
 
             if findings:
                 all_findings[domain] = findings
+                for f in findings:
+                    all_findings_flat.append({**f, "domain": domain})
                 total_errors += sum(1 for f in findings if f["severity"] == "ERROR")
                 total_warnings += sum(1 for f in findings if f["severity"] == "WARNING")
 
+        # ── Feature 3: Validation Escalation ──────────────────────────────
+        # SD0001, SD0037, non_ig_sdtm_variable automatically promoted to blocking
+        escalation_result = self.escalate_findings(all_findings_flat, domain="ALL")
+        blocked = self.is_blocked(escalation_result)
+        esc_sum = self.escalation_summary(escalation_result)
+        # Refresh counts from escalated findings list
+        total_errors = sum(
+            1 for f in escalation_result.get("findings", [])
+            if f.get("severity") == "ERROR" or f.get("level") == "error"
+        )
+
+        # ── Feature 2: Confidence-Based Execution Branching ───────────────
+        # Confidence reflects share of clean domains and total evidence (records checked)
+        total_records = sum(
+            len(all_findings.get(d, [])) for d in domains_checked
+        )
+        clean_domains = len(domains_checked) - len(all_findings)
+        confidence = self.compute_confidence(
+            evidence_count=len(domains_checked),
+            quality_signals=[clean_domains / max(len(domains_checked), 1)],
+            validation_methods=["sd0001_check", "sd0037_check", "sd0006_check"],
+        )
+        branch = self.branch_on_confidence(
+            confidence,
+            thresholds={"proceed": 0.60, "escalate": 0.30, "defer": 0.15},
+            context_hint="SDTM conformance alert gate",
+        )
+
+        # ── Feature 4: Contextual Prompt Injection for HITL ───────────────
+        prior_corrections = context.extra.get("prior_corrections") or []
+        hitl_ctx = self.build_hitl_context(prior_corrections, domain="ALL")
+
         # Generate report
-        report_md = self._build_report(context, all_findings, total_errors, total_warnings, domains_checked)
+        report_md = self._build_report(
+            context, all_findings, total_errors, total_warnings, domains_checked,
+            esc_summary=esc_sum, blocked=blocked, branch=branch,
+        )
         artifact = await context.artifact_store.save_report(
             title=f"SDTM_Conformance_Report_{context.protocol_number}",
             content=report_md,
         )
 
-        # Alert DM if errors found
-        if total_errors > 0 and not context.is_test_run:
-            severity = "critical" if total_errors >= 10 else "warning"
+        # Alert DM — gated on confidence branch
+        if total_errors > 0 and not context.is_test_run and branch.action in ("proceed", "escalate"):
+            severity = "critical" if blocked or total_errors >= 10 else "warning"
+            base_body = (
+                f"{total_errors} ERROR-level conformance findings across "
+                f"{len(all_findings)} domain(s). Review report."
+            )
+            notif_body = self.build_hitl_body(
+                base_body,
+                escalation_result=escalation_result if blocked else None,
+                branch_result=branch if branch.action == "escalate" else None,
+            )
+            if hitl_ctx:
+                notif_body = f"{notif_body}\n\n{hitl_ctx}"
             await context.notification_client.notify(
                 user_id=context.extra.get("dm_user_id", "data-manager"),
                 title=f"SDTM Conformance: {total_errors} errors in {context.study_name}",
-                body=f"{total_errors} ERROR-level conformance findings across {len(all_findings)} domains. Review report.",
+                body=notif_body,
                 severity=severity,
             )
 
@@ -102,6 +178,11 @@ class SDTMConformanceChecker(BaseAgent):
                 "domains_checked": domains_checked,
                 "total_errors": total_errors,
                 "total_warnings": total_warnings,
+                # Feature metadata for audit trail
+                "confidence": confidence,
+                "branch_action": branch.action,
+                "escalation": escalation_result.get("escalation_policy"),
+                "hitl_context_injected": bool(hitl_ctx),
             },
         )
 
@@ -165,7 +246,10 @@ class SDTMConformanceChecker(BaseAgent):
 
         return findings
 
-    def _build_report(self, context: AgentContext, findings: dict, errors: int, warnings: int, domains: list) -> str:
+    def _build_report(
+        self, context: AgentContext, findings: dict, errors: int, warnings: int,
+        domains: list, esc_summary: str = "", blocked: bool = False, branch=None,
+    ) -> str:
         ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M UTC")
         lines = [
             f"# SDTM Conformance Report",
@@ -180,8 +264,20 @@ class SDTMConformanceChecker(BaseAgent):
             f"| Total Warnings | **{warnings}** |",
             f"| Domains with Issues | {len(findings)} |",
             f"| Clean Domains | {len(domains) - len(findings)} |",
-            "",
         ]
+
+        if esc_summary:
+            blocked_icon = "🚫" if blocked else "✅"
+            lines += [
+                f"| Validation Escalation | {blocked_icon} {esc_summary} |",
+            ]
+        if branch is not None:
+            branch_icon = {"proceed": "✅", "escalate": "⚠️", "defer": "🔶", "skip": "⏭️"}.get(branch.action, "")
+            lines += [
+                f"| Alert Confidence | {branch_icon} `{branch.action}` — {branch.reason} |",
+            ]
+
+        lines.append("")
 
         if not findings:
             lines.append("✅ **All domains pass CDISC SDTM conformance checks.**")
